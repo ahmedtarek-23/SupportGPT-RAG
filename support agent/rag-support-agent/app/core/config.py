@@ -58,6 +58,16 @@ class Settings(BaseSettings):
     ingestion_task_timeout_seconds: int = 1800  # 30 minutes
     enable_document_cleanup: bool = True  # Auto-cleanup uploaded files after ingestion
 
+    # Advanced Conversation Features (Phase 6)
+    enable_context_summarization: bool = True  # Summarize multi-turn conversations
+    enable_clarifications: bool = True  # Ask clarifying questions for ambiguous queries
+    enable_confidence_scoring: bool = True  # Score answer confidence with explanations
+    clarification_ambiguity_threshold: float = 0.6  # Threshold to trigger clarifications
+    context_summarization_threshold: int = 10  # Number of messages before summarizing
+    confidence_high_threshold: float = 0.75  # Score threshold for high confidence
+    confidence_medium_threshold: float = 0.50  # Score threshold for medium confidence
+    confidence_low_threshold: float = 0.30  # Score threshold for low confidence
+
     # Application Settings
     precompute_on_startup: bool = True
     debug: bool = False

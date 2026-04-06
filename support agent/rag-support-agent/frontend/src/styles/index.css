@@ -1,0 +1,70 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: #03040F;
+  color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #03040F;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 102, 255, 0.4);
+  border-radius: 100px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 102, 255, 0.7);
+}
+
+::selection {
+  background: rgba(0, 102, 255, 0.3);
+  color: #fff;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(160, 180, 230, 0.3);
+}
+
+/* Projects grid - responsive spanning */
+.projects-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 900px) {
+  .projects-grid {
+    grid-template-columns: 1fr;
+  }
+  .projects-grid > * {
+    grid-column: span 1 !important;
+    aspect-ratio: 4/3 !important;
+  }
+}
+
+/* Hero stats responsive */
+@media (max-width: 600px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}

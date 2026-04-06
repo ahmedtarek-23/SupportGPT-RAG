@@ -7,7 +7,7 @@ capturing both conceptual similarity and exact keyword matches.
 
 import logging
 from typing import List, Dict, Tuple
-from bm25 import BM25Okapi
+from rank_bm25 import BM25Okapi
 import numpy as np
 
 from app.schemas.chunk import EmbeddedChunk, ChunkWithScore

@@ -13,6 +13,9 @@ A high-performance RAG (Retrieval-Augmented Generation) system for AI-powered cu
 ✅ **Query Expansion** — Synonym expansion and query rewriting for broader coverage  
 ✅ **Multi-Document Upload** — PDF, DOCX, and TXT file parsing and ingestion  
 ✅ **Async Processing** — Celery-based background task queue for parallel document ingestion  
+✅ **Context Summarization** — Automatic condensing of multi-turn conversations  
+✅ **Clarifying Questions** — AI asks for missing details when queries are ambiguous  
+✅ **Confidence Scoring** — Transparency with answer reliability + source attribution  
 ✅ **Modular Architecture** — Clean separation of concerns (ingestion → embedding → retrieval → generation)  
 ✅ **Flexible Storage** — Switch between JSON (dev) and pgvector (production) with no code changes  
 ✅ **Production-Ready** — Comprehensive logging, error handling, and configuration management  
@@ -107,6 +110,22 @@ curl -X POST "http://localhost:8000/api/chat" \
   -H "Content-Type: application/json" \
   -d '{"query": "How do I cancel my subscription?"}'
 ```
+
+## Frontend
+
+A new React + Vite frontend was added under `frontend/` using your Figma bundle.
+
+### Run the frontend locally
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend is configured to proxy `/api` requests to `http://localhost:8000`.
+
+### Use with the backend
+Start the backend API first, then run the frontend. The new frontend includes a live support chat section that sends requests to `/api/chat`.
 
 ## API Endpoints
 
@@ -704,8 +723,147 @@ print(query_response.json()["answer"])
 - [x] **Phase 3**: Redis caching for response caching + session memory
 - [x] **Phase 4**: Retrieval quality improvements (re-ranking, hybrid search, query expansion)
 - [x] **Phase 5**: Multi-document ingestion (PDF, DOCX, async background processing)
-- [ ] **Phase 6**: Advanced conversation features (context summarization, clarifying questions)
+- [x] **Phase 6**: Advanced conversation features (context summarization, clarifying questions, confidence scoring)
 - [ ] **Phase 7**: Observability (metrics, distributed tracing, error tracking)
+
+## Advanced Conversation Features (Phase 6)
+
+Phase 6 adds intelligent conversation management with three core capabilities:
+
+### 1. Context Summarization
+Automatically summarizes multi-turn conversations to preserve context while reducing token usage:
+
+**Features:**
+- Extracts key topics from conversation history (billing, account, technical, etc.)
+- Creates abstractive summaries using OpenAI API
+- Tracks previous queries for conversation continuity
+- Intelligent context window management
+
+**API:**
+```bash
+# Context is automatically included in /api/chat responses for sessions
+curl -X POST "http://localhost:8000/api/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "And how long does it take?",
+    "session_id": "550e8400-e29b-41d4-a716-446655440000"
+  }'
+
+# Response includes summarized context from previous messages
+{
+  "answer": "Processing typically takes 2-3 business days...",
+  "sources": [...],
+  "confidence": {...}
+}
+```
+
+### 2. Clarifying Questions
+Detects ambiguous queries and asks clarifying questions before searching:
+
+**Features:**
+- 3-level ambiguity detection: CLEAR, MODERATE, HIGH
+- Automatic intent classification (account, billing, technical, general)
+- Multi-choice clarification options
+- Refines search based on user's clarification
+
+**API:**
+```bash
+# If query is ambiguous, returns clarification instead of answer
+curl -X POST "http://localhost:8000/api/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How do I fix my issue?"}'
+
+# Response requests clarification
+{
+  "answer": "",
+  "sources": [],
+  "clarifications": {
+    "type": "clarification_needed",
+    "question": "What type of issue are you experiencing?",
+    "options": ["Feature Not Working", "Error Message", "Performance", "Integration"],
+    "require_response": true
+  }
+}
+
+# Submit clarification to /api/chat/clarify
+curl -X POST "http://localhost:8000/api/chat/clarify" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "original_query": "How do I fix my issue?",
+    "clarification_response": "Feature Not Working"
+  }'
+
+# Returns answer to refined query
+{
+  "answer": "To fix a feature that's not working, try these steps...",
+  "sources": [...],
+  "confidence": {...}
+}
+```
+
+### 3. Confidence Scoring & Explainability
+Every answer includes a confidence score with transparent reasoning:
+
+**Confidence Levels:**
+- **HIGH** (> 0.75): Multiple high-quality sources confirm the answer
+- **MEDIUM** (> 0.50): Based on available documentation, some uncertainty
+- **LOW** (> 0.30): Limited relevant information, may be incomplete
+- **INSUFFICIENT** (< 0.30): Not enough evidence for a confident answer
+
+**Scoring Factors (weighted):**
+1. Retrieval quality (50%) — Source similarity scores
+2. Relevance (30%) — How well sources match query
+3. Intent matching (20%) — How well answer addresses query intent
+
+**API Response:**
+```json
+{
+  "answer": "To reset your password...",
+  "sources": [
+    {
+      "text": "To reset your password, visit...",
+      "source": "faq.txt",
+      "similarity_score": 0.92
+    }
+  ],
+  "confidence": {
+    "level": "high",
+    "score": 0.87,
+    "breakdown": {
+      "retrieval": 0.92,
+      "relevance": 0.85,
+      "intent_match": 0.78
+    },
+    "explanation": "Multiple high-quality sources confirm this answer; Information sourced from 3 relevant documents"
+  }
+}
+```
+
+### Configuration (Phase 6)
+
+Enable/disable Phase 6 features in `.env`:
+
+```env
+# Advanced Conversation Features (Phase 6)
+ENABLE_CONTEXT_SUMMARIZATION=true
+ENABLE_CLARIFICATIONS=true
+ENABLE_CONFIDENCE_SCORING=true
+CLARIFICATION_AMBIGUITY_THRESHOLD=0.6
+CONTEXT_SUMMARIZATION_THRESHOLD=10
+CONFIDENCE_HIGH_THRESHOLD=0.75
+CONFIDENCE_MEDIUM_THRESHOLD=0.50
+CONFIDENCE_LOW_THRESHOLD=0.30
+```
+
+### Frontend Integration
+
+The React frontend (`frontend/SupportChat.tsx`) displays:
+- Confidence badges with color coding (🟢 high, 🟡 medium, 🔴 low)
+- Source attribution with snippet previews
+- Clarification dialogs with multi-choice options
+- Full conversation history with confidence for each response
+
 
 ## Troubleshooting
 
