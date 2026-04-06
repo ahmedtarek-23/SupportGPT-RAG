@@ -1,0 +1,44 @@
+Q: How do I reset my password?
+A: To reset your password, visit the login page and click the "Forgot Password" link at the bottom. Enter your email address and we'll send you a password reset link. Click the link in the email and enter your new password.
+
+Q: What payment methods do you accept?
+A: We accept all major credit cards (Visa, Mastercard, American Express), PayPal, and bank transfers for enterprise customers. All transactions are processed securely through our payment gateway.
+
+Q: How can I update my account information?
+A: To update your account information, log into your account, go to the "Account Settings" page, and click "Edit Profile". You can update your name, email, phone number, and billing address. Changes take effect immediately.
+
+Q: What is your refund policy?
+A: We offer a 30-day money-back guarantee on all purchases. If you're not satisfied with our service, contact our support team within 30 days of purchase for a full refund. No questions asked.
+
+Q: How do I cancel my subscription?
+A: You can cancel your subscription anytime from your Account Settings under "Billing". Click "Cancel Subscription" and confirm. Your access will continue until the end of your current billing period.
+
+Q: Do you offer bulk discounts?
+A: Yes, we offer volume discounts for businesses. For bulk orders or enterprise plans, please contact our sales team at sales@example.com. We'll be happy to discuss custom pricing.
+
+Q: How long does it take to activate my account?
+A: Most accounts are activated instantly after payment. If your account hasn't been activated within 24 hours, please contact our support team. We may need to verify your information for security reasons.
+
+Q: What is your uptime guarantee?
+A: We guarantee 99.9% uptime for our service. In the rare event of downtime, affected customers receive service credits according to our Service Level Agreement.
+
+Q: How do I contact customer support?
+A: You can reach our support team via email at support@example.com, through the live chat on our website, or by calling 1-800-555-0123. Support hours are Monday-Friday, 9AM-6PM EST.
+
+Q: Can I have multiple users on my account?
+A: Yes, depending on your plan. Standard plans include 1 user, Professional plans include up to 5 users, and Enterprise plans have unlimited users. Additional users can be added from the Team Management section of your account.
+
+Q: Is my data secure?
+A: Yes, we use 256-bit AES encryption for all data in transit and at rest. All our servers are hosted on secure, redundant infrastructure with automatic backups. We comply with GDPR, HIPAA, and SOC 2 standards.
+
+Q: Do you offer API access?
+A: Yes, all paid plans include API access. API documentation is available in the Developer section of your account dashboard. We provide REST and GraphQL APIs with comprehensive documentation and SDKs.
+
+Q: How do I export my data?
+A: You can export your data anytime from the Account Settings under "Data Export". We support CSV, JSON, and XML formats. All data exports are processed within 24 hours.
+
+Q: What is your change policy?
+A: Most changes to your account take effect immediately. Billing cycle changes take effect on your next billing date. For more information, please review our complete Terms of Service.
+
+Q: Do you offer free trials?
+A: Yes, we offer a 14-day free trial with full access to all features. No credit card required. After the trial ends, you'll need to enter a payment method to continue using the service.

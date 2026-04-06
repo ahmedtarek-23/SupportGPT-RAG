@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: pgvector/pgvector:0.5.1-pg16
+    container_name: supportgpt_postgres
+    environment:
+      POSTGRES_USER: supportgpt
+      POSTGRES_PASSWORD: supportgpt_password
+      POSTGRES_DB: supportgpt_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supportgpt"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: supportgpt_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+
+  # SupportGPT-RAG API (optional, for local development)
+  api:
+    build: .
+    container_name: supportgpt_api
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DATABASE_URL: postgresql://supportgpt:supportgpt_password@postgres:5432/supportgpt_db
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
+      EMBEDDING_STORE_TYPE: pgvector
+      ENABLE_CACHING: "true"
+      ENABLE_SESSION_MEMORY: "true"
+      ENABLE_ASYNC_INGESTION: "true"
+      PRECOMPUTE_ON_STARTUP: "true"
+      DEBUG: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker for async document ingestion (Phase 5)
+  celery_worker:
+    build: .
+    container_name: supportgpt_worker
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DATABASE_URL: postgresql://supportgpt:supportgpt_password@postgres:5432/supportgpt_db
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
+      EMBEDDING_STORE_TYPE: pgvector
+      ENABLE_ASYNC_INGESTION: "true"
+      ENABLE_HYBRID_SEARCH: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.services.background_task_service.celery_app worker --loglevel=info --concurrency=2
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.services.background_task_service.celery_app", "inspect", "active"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
