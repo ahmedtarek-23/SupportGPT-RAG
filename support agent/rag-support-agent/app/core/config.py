@@ -1,14 +1,23 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import Optional
 
 
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
-    # OpenAI Configuration
-    openai_api_key: str
-    embedding_model: str = "text-embedding-3-small"
-    chat_model: str = "gpt-3.5-turbo"
+    # ── Local AI (Ollama) ────────────────────────────────────────
+    # Primary AI backend. Run Ollama locally: https://ollama.ai
+    # Pull model: `ollama pull llama3` or `ollama pull mistral`
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "llama3"                     # or "mistral", "phi3"
+    use_local_ai: bool = True                         # Use Ollama instead of OpenAI
+
+    # ── OpenAI (optional, used only if use_local_ai=False) ───────
+    openai_api_key: str = "ollama"                   # Dummy key when using Ollama
+    embedding_model: str = "all-MiniLM-L6-v2"        # sentence-transformers model
+    embedding_dimensions: int = 384                   # Dimensions for local embeddings
+    chat_model: str = "llama3"                        # Overridden by ollama_model when use_local_ai=True
 
     # Chunking Configuration
     chunk_size: int = 500  # tokens
@@ -20,7 +29,7 @@ class Settings(BaseSettings):
     # Storage Configuration
     embedding_storage_path: str = ".cache/embeddings.json"
     embedding_store_type: str = "json"  # json or pgvector
-    database_url: str | None = None  # PostgreSQL connection string
+    database_url: Optional[str] = None  # PostgreSQL connection string
     faq_file_path: str = "app/data/faq.txt"
 
     # Redis Configuration
@@ -67,6 +76,19 @@ class Settings(BaseSettings):
     confidence_high_threshold: float = 0.75  # Score threshold for high confidence
     confidence_medium_threshold: float = 0.50  # Score threshold for medium confidence
     confidence_low_threshold: float = 0.30  # Score threshold for low confidence
+
+    # University Platform Features (Phase 8+)
+    enable_deadline_reminders: bool = True
+    default_reminder_hours: str = "48,24,2"  # Comma-separated hours before deadline
+    enable_study_planner: bool = True
+    study_planner_model: str = "llama3"       # Uses Ollama model
+    max_study_hours_per_day: int = 8
+    enable_flashcard_generation: bool = True
+    flashcard_generation_model: str = "llama3"
+    max_flashcards_per_request: int = 50
+
+    # CORS
+    cors_origins: str = "*"  # Comma-separated list of allowed origins, or "*" for all
 
     # Application Settings
     precompute_on_startup: bool = True

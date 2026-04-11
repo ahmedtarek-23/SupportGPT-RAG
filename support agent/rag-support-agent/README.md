@@ -1,6 +1,6 @@
-# SupportGPT-RAG: Production-Ready AI Customer Support Agent
+# StudyMate — AI Academic Operating System
 
-A high-performance RAG (Retrieval-Augmented Generation) system for AI-powered customer support. Built with FastAPI, OpenAI, pgvector, and Redis.
+A file-first AI academic platform. Upload lecture PDFs and let AI extract your courses, deadlines, flashcards and study plan. Built with FastAPI, Ollama (local LLM), pgvector, Celery, and React + Vite.
 
 ## Features
 
@@ -455,7 +455,7 @@ docker-compose up
 
 Starts:
 - PostgreSQL + pgvector on port 5432
-- SupportGPT API on port 8000
+- StudyMate API on port 8000
 
 ## Performance Benchmarks
 

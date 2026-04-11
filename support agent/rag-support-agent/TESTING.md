@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installation Instructions for SupportGPT-RAG Full Stack
+# Installation Instructions for StudyMate Full Stack
 
 ## Docker Installation (Required for Full Stack)
 

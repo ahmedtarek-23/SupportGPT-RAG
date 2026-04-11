@@ -1,17 +1,24 @@
 import logging
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
-from fastapi import APIRouter, File, UploadFile, HTTPException, Query
+from uuid import UUID
+from fastapi import APIRouter, File, UploadFile, HTTPException, Query, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.services.background_task_service import TaskManager
 from app.services.document_parser_service import DocumentParserFactory
+from app.services.summary_service import SummaryService
 from app.core.config import get_settings
+from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+DEFAULT_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 # Get settings
 settings = get_settings()
@@ -24,6 +31,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 class UploadResponse(BaseModel):
     """Response for document upload."""
     task_id: str
+    document_id: str
     filename: str
     file_size: int
     message: str
@@ -53,51 +61,82 @@ class DocumentMetadata(BaseModel):
 @router.post("/documents/upload", response_model=UploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    source_name: Optional[str] = Query(None, description="Optional custom source name")
+    source_name: Optional[str] = Query(None, description="Optional custom source name"),
+    db=Depends(get_db),
 ):
     """
     Upload a document for asynchronous ingestion.
-    
+    Immediately creates a DB record (status=pending), then submits the
+    Celery task. Returns document_id so the frontend can poll by document.
+
     Supports: PDF, DOCX, TXT
-    
-    Returns: Task ID for tracking ingestion progress
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
-    
-    # Validate file extension
+
     file_ext = Path(file.filename).suffix.lower()
     if not DocumentParserFactory.supports(f"test{file_ext}"):
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {file_ext}. Supported: .pdf, .docx, .txt"
+            detail=f"Unsupported file type: {file_ext}. Supported: .pdf, .docx, .txt",
         )
-    
+
     try:
-        # Save uploaded file temporarily
-        file_path = UPLOAD_DIR / file.filename
-        
-        with open(file_path, 'wb') as f:
-            contents = await file.read()
-            f.write(contents)
-        
+        contents = await file.read()
         file_size = len(contents)
-        
-        logger.info(f"Saved uploaded file: {file.filename} ({file_size} bytes)")
-        
-        # Submit async ingestion task
-        task_id = TaskManager.submit_ingestion(str(file_path), source_name=source_name)
-        
+
+        # Validate size (backend limit: 100 MB)
+        max_bytes = settings.max_document_size_mb * 1024 * 1024
+        if file_size > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large ({file_size // (1024*1024)} MB). Max {settings.max_document_size_mb} MB.",
+            )
+
+        # Save file to disk
+        import uuid as _uuid
+        safe_name = f"{_uuid.uuid4().hex}_{file.filename}"
+        file_path = UPLOAD_DIR / safe_name
+        file_path.write_bytes(contents)
+        logger.info(f"Saved uploaded file: {file.filename} ({file_size} bytes) → {safe_name}")
+
+        # Create Document DB record immediately (status=pending)
+        from app.db.models import Document
+        doc = Document(
+            user_id=DEFAULT_USER_ID,
+            filename=safe_name,
+            original_filename=file.filename,
+            document_type=file_ext.lstrip("."),
+            file_size_bytes=file_size,
+            file_path=str(file_path),
+            status="pending",
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+        document_id = str(doc.id)
+        logger.info(f"Created Document record {document_id} for {file.filename}")
+
+        # Submit Celery task, passing document_id so the worker can update the record
+        task_id = TaskManager.submit_ingestion(
+            str(file_path),
+            source_name=source_name or file.filename,
+            document_id=document_id,
+        )
+
         return UploadResponse(
             task_id=task_id,
+            document_id=document_id,
             filename=file.filename,
             file_size=file_size,
-            message="Document submitted for ingestion. Check status with task_id."
+            message="File saved. Extracting intelligence in the background…",
         )
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error uploading document: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to upload document: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @router.get("/documents/upload/{task_id}", response_model=TaskStatusResponse)
@@ -109,11 +148,16 @@ async def get_upload_status(task_id: str):
     """
     status = TaskManager.get_task_status(task_id)
     
+    # Ensure document_id bubbles up to the top-level result for easy frontend access
+    result = status.get('result')
+    if isinstance(result, dict) and 'document_id' not in result and status.get('state') == 'SUCCESS':
+        result = result  # document_id already set inside task result by the worker
+
     return TaskStatusResponse(
         task_id=status['task_id'],
         state=status['state'],
         progress=status['progress'],
-        result=status['result'],
+        result=result,
         error=status['error'],
     )
 
@@ -189,27 +233,97 @@ async def cancel_ingestion(task_id: str):
 
 
 @router.get("/documents")
-async def list_documents(skip: int = 0, limit: int = 10):
-    """
-    List ingested documents with metadata.
-    
-    Note: This is a placeholder pending implementation of document registry.
-    """
-    # TODO: Implement document registry to track ingested documents
+async def list_documents(
+    skip: int = 0,
+    limit: int = 20,
+    db=Depends(get_db),
+):
+    """List all documents tracked in the database."""
+    from app.db.models import Document
+    docs = db.query(Document).filter(
+        Document.user_id == DEFAULT_USER_ID,
+    ).order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+
+    total = db.query(Document).filter(Document.user_id == DEFAULT_USER_ID).count()
+
     return {
-        "documents": [],
-        "total": 0,
-        "message": "Document listing coming in Phase 6"
+        "documents": [
+            {
+                "id": str(d.id),
+                "filename": d.original_filename,
+                "document_type": d.document_type,
+                "status": d.status,
+                "course_id": str(d.course_id) if d.course_id else None,
+                "extracted_title": d.extracted_title,
+                "extracted_summary": d.extracted_summary,
+                "num_chunks": d.num_chunks,
+                "created_at": d.created_at.isoformat(),
+                "ingested_at": d.ingested_at.isoformat() if d.ingested_at else None,
+            }
+            for d in docs
+        ],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
     }
+
+
+@router.get("/documents/by-course/{course_id}")
+async def list_documents_by_course(course_id: UUID, db=Depends(get_db)):
+    """
+    List all documents linked to a specific course.
+
+    Returns document metadata + extracted intelligence summary.
+    """
+    from app.db.models import Document
+    docs = db.query(Document).filter(
+        Document.course_id == course_id,
+    ).order_by(Document.created_at.desc()).all()
+
+    return {
+        "course_id": str(course_id),
+        "documents": [
+            {
+                "id": str(d.id),
+                "filename": d.original_filename,
+                "document_type": d.document_type,
+                "status": d.status,
+                "extracted_title": d.extracted_title,
+                "extracted_summary": d.extracted_summary,
+                "extracted_instructor_name": d.extracted_instructor_name,
+                "extracted_instructor_email": d.extracted_instructor_email,
+                "extracted_office_hours": d.extracted_office_hours or [],
+                "extracted_dates_count": len(d.extracted_dates or []),
+                "extracted_assignments_count": len(d.extracted_assignments or []),
+                "extracted_flashcard_count": d.extracted_flashcard_count or 0,
+                "num_chunks": d.num_chunks,
+                "created_at": d.created_at.isoformat(),
+                "ingested_at": d.ingested_at.isoformat() if d.ingested_at else None,
+            }
+            for d in docs
+        ],
+        "total": len(docs),
+    }
+
+
+@router.get("/documents/summary/{document_id}")
+async def get_document_summary(document_id: UUID, db=Depends(get_db)):
+    """
+    Full document summary with all extracted intelligence.
+
+    Includes: document metadata, instructor info, important dates,
+    assignments, flashcard candidates count, and linked course context.
+    """
+    result = SummaryService.get_document_summary_response(db, document_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return result
 
 
 @router.get("/documents/stats")
 async def get_upload_stats():
-    """
-    Get statistics about uploaded documents.
-    """
+    """Get statistics about uploaded documents."""
     try:
-        # Count uploaded files
         if UPLOAD_DIR.exists():
             uploaded_files = list(UPLOAD_DIR.glob("*"))
             file_count = len(uploaded_files)
@@ -217,7 +331,7 @@ async def get_upload_stats():
         else:
             file_count = 0
             total_size = 0
-        
+
         return {
             "upload_directory": str(UPLOAD_DIR),
             "uploaded_files": file_count,
@@ -227,3 +341,265 @@ async def get_upload_stats():
     except Exception as e:
         logger.error(f"Error getting upload stats: {e}")
         raise HTTPException(status_code=500, detail="Failed to get upload statistics")
+
+
+# ── Per-document CRUD + intelligence endpoints ────────────────────
+# NOTE: these must come after all /documents/<prefix>/<id> routes
+# so FastAPI matches the static prefixes first.
+
+
+class ConfirmationPayload(BaseModel):
+    create_course: bool = True
+    confirmed_course_name: Optional[str] = None
+    confirmed_course_code: Optional[str] = None
+    confirmed_instructor_name: Optional[str] = None
+    confirmed_deadlines: List[dict] = []
+    confirmed_flashcards: List[dict] = []
+
+
+@router.get("/documents/{document_id}")
+async def get_document_detail(document_id: UUID, db=Depends(get_db)):
+    """Full document detail including all extracted intelligence."""
+    from app.db.models import Document
+    doc = db.query(Document).filter(
+        Document.id == document_id,
+        Document.user_id == DEFAULT_USER_ID,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return {
+        "id": str(doc.id),
+        "filename": doc.original_filename,
+        "document_type": doc.document_type,
+        "file_size_bytes": doc.file_size_bytes,
+        "status": doc.status,
+        "num_chunks": doc.num_chunks,
+        "course_id": str(doc.course_id) if doc.course_id else None,
+        "confidence_band": getattr(doc, "confidence_band", None),
+        "confirmed_at": getattr(doc, "confirmed_at", None),
+        "extracted_title": doc.extracted_title,
+        "extracted_summary": doc.extracted_summary,
+        "extracted_instructor_name": doc.extracted_instructor_name,
+        "extracted_instructor_email": doc.extracted_instructor_email,
+        "extracted_office_hours": doc.extracted_office_hours or [],
+        "extracted_dates": doc.extracted_dates or [],
+        "extracted_assignments": doc.extracted_assignments or [],
+        "extracted_flashcard_count": doc.extracted_flashcard_count or 0,
+        "extraction_metadata": doc.extraction_metadata or {},
+        "error_message": doc.error_message,
+        "created_at": doc.created_at.isoformat(),
+        "ingested_at": doc.ingested_at.isoformat() if doc.ingested_at else None,
+    }
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document(document_id: UUID, db=Depends(get_db)):
+    """Delete a document record and its on-disk file."""
+    from app.db.models import Document, EmbeddingChunk
+    doc = db.query(Document).filter(
+        Document.id == document_id,
+        Document.user_id == DEFAULT_USER_ID,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Remove embedding chunks from pgvector
+    db.query(EmbeddingChunk).filter(
+        EmbeddingChunk.source == doc.original_filename
+    ).delete(synchronize_session=False)
+
+    # Remove physical file
+    if doc.file_path:
+        try:
+            Path(doc.file_path).unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning(f"Could not delete file {doc.file_path}: {e}")
+
+    db.delete(doc)
+    db.commit()
+    return {"message": "Document deleted", "id": str(document_id)}
+
+
+@router.post("/documents/{document_id}/confirm")
+async def confirm_document_metadata(
+    document_id: UUID,
+    payload: ConfirmationPayload,
+    db=Depends(get_db),
+):
+    """
+    User confirms (and optionally edits) AI-extracted metadata.
+    Creates Course, Deadlines, and Flashcards from confirmed data.
+    """
+    from app.db.models import Document
+    from app.services.entity_provisioner_service import EntityProvisioner
+
+    doc = db.query(Document).filter(
+        Document.id == document_id,
+        Document.user_id == DEFAULT_USER_ID,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    provisioner = EntityProvisioner()
+    result = provisioner.provision_from_confirmation(
+        db=db,
+        document=doc,
+        payload=payload.model_dump(),
+        user_id=DEFAULT_USER_ID,
+    )
+
+    return {
+        "document_id": str(document_id),
+        "course_id": result.course_id,
+        "deadlines_created": result.deadlines_created,
+        "flashcards_created": result.flashcards_created,
+        "confirmed": True,
+    }
+
+
+@router.post("/documents/{document_id}/generate-flashcards")
+async def generate_flashcards_from_document(
+    document_id: UUID,
+    count: int = Query(default=10, ge=1, le=30),
+    db=Depends(get_db),
+):
+    """
+    Generate or refresh flashcards from a document's extracted candidates.
+    Uses candidates already stored in extraction_metadata; falls back to RAG.
+    """
+    from app.db.models import Document
+    from app.services.flashcard_service import FlashcardService
+
+    doc = db.query(Document).filter(
+        Document.id == document_id,
+        Document.user_id == DEFAULT_USER_ID,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.status != "completed":
+        raise HTTPException(status_code=400, detail="Document has not finished processing")
+
+    # Use cached candidates first
+    candidates = (doc.extraction_metadata or {}).get("flashcard_candidates", [])
+    created = []
+
+    if candidates:
+        from app.db.models import Flashcard
+        for fc in candidates[:count]:
+            if not fc.get("question") or not fc.get("answer"):
+                continue
+            flashcard = Flashcard(
+                user_id=DEFAULT_USER_ID,
+                course_id=doc.course_id,
+                question=fc["question"],
+                answer=fc["answer"],
+                source_doc=doc.original_filename,
+                difficulty=1,
+                next_review=datetime.utcnow(),
+            )
+            db.add(flashcard)
+            created.append(fc["question"][:60])
+        db.commit()
+    else:
+        # Fallback: AI generation via RAG
+        svc = FlashcardService()
+        flashcards = svc.generate_flashcards(
+            db=db,
+            user_id=DEFAULT_USER_ID,
+            source_document=doc.original_filename,
+            course_id=doc.course_id,
+            count=count,
+        )
+        created = [f.question[:60] for f in flashcards]
+
+    return {
+        "document_id": str(document_id),
+        "flashcards_created": len(created),
+        "source": "extraction_cache" if candidates else "rag_generation",
+    }
+
+
+@router.post("/documents/{document_id}/generate-summary")
+async def generate_document_summary(document_id: UUID, db=Depends(get_db)):
+    """Generate or refresh the AI summary for a document."""
+    from app.db.models import Document
+    from app.services.ollama_service import get_ollama_client, get_active_model
+
+    doc = db.query(Document).filter(
+        Document.id == document_id,
+        Document.user_id == DEFAULT_USER_ID,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.status != "completed":
+        raise HTTPException(status_code=400, detail="Document has not finished processing")
+
+    # Pull text from embedding chunks
+    from app.db.models import EmbeddingChunk
+    chunks = db.query(EmbeddingChunk).filter(
+        EmbeddingChunk.source == doc.original_filename
+    ).limit(20).all()
+
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No content chunks found for this document")
+
+    combined_text = "\n\n".join(c.text for c in chunks)[:6000]
+
+    try:
+        client = get_ollama_client()
+        model = get_active_model()
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Summarize this academic document in 3-4 sentences. "
+                    "Mention the course, key topics, and any important dates if present.\n\n"
+                    f"{combined_text}"
+                ),
+            }],
+            temperature=0.3,
+            max_tokens=300,
+        )
+        summary = response.choices[0].message.content.strip()
+        doc.extracted_summary = summary
+        db.commit()
+        return {"document_id": str(document_id), "summary": summary}
+    except Exception as e:
+        logger.error(f"Summary generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Summary generation failed")
+
+
+@router.get("/documents/{document_id}/status")
+async def stream_document_status(document_id: UUID, db=Depends(get_db)):
+    """
+    SSE stream of processing events for a document.
+    Frontend polls this to drive the progress bar.
+    """
+    import asyncio
+    import json as _json
+    from app.db.models import Document
+
+    async def event_generator():
+        for _ in range(30):  # max 30 polls (~30s)
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            if not doc:
+                yield f"data: {_json.dumps({'status': 'not_found'})}\n\n"
+                return
+
+            payload = {
+                "status": doc.status,
+                "num_chunks": doc.num_chunks,
+                "confidence_band": getattr(doc, "confidence_band", None),
+                "extracted_title": doc.extracted_title,
+                "error": doc.error_message,
+            }
+            yield f"data: {_json.dumps(payload)}\n\n"
+
+            if doc.status in ("completed", "failed"):
+                return
+
+            await asyncio.sleep(1)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

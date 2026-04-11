@@ -79,106 +79,184 @@ class IngestionTask:
 @celery_app.task(
     name='tasks.ingest_document',
     bind=True,
-    autoretry_for=(Exception,),
-    retry_kwargs={'max_retries': 3, 'countdown': 5},
+    max_retries=0,  # no auto-retry — we manage state manually
 )
-def ingest_document_task(self, file_path: str, source_name: str = None):
+def ingest_document_task(self, file_path: str, source_name: str = None, document_id: str = None):
     """
-    Async task for ingesting a document.
-    
+    Full ingestion pipeline:
+      1. Parse → chunk → embed → store
+      2. Extract AI metadata (course, teacher, dates, flashcards)
+      3. Score confidence
+      4. Auto-provision entities (HIGH) or mark pending (LOW/NONE)
+      5. Persist Document record with all results
+
     Args:
-        file_path: Path to document
-        source_name: Optional custom source name
-        
-    Returns:
-        Dict with ingestion results
+        file_path:    Path to saved file
+        source_name:  Optional display name
+        document_id:  DB Document UUID (pre-created by upload route)
     """
+    from app.db.session import get_session_factory
+    from app.db.models import Document
+    from uuid import UUID as _UUID
+
+    SessionLocal = get_session_factory()
+    db = SessionLocal()
+    doc = None
+
+    def _update_doc_status(status: str, note: str = ""):
+        if doc is not None:
+            doc.status = status
+            if note:
+                doc.error_message = note
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
     try:
         from app.services.document_parser_service import DocumentParserFactory
         from app.services.embedding_service import EmbeddingService
         from app.services.embedding_store_factory import get_embedding_store
         from app.services.ingestion_service import IngestService
-        
-        logger.info(f"Starting ingestion task for: {file_path}")
-        self.update_state(state='PROCESSING', meta={'current': 'Parsing document...'})
-        
-        # Parse document
+
+        # ── Fetch the Document record ────────────────────────────────
+        if document_id:
+            doc = db.query(Document).filter(Document.id == _UUID(document_id)).first()
+        if doc is None:
+            logger.warning(f"No Document record for id={document_id}; continuing without DB updates")
+
+        logger.info(f"Starting ingestion task for: {file_path} (doc={document_id})")
+        _update_doc_status("processing")
+        self.update_state(state='PROCESSING', meta={'current': 'Parsing document…', 'document_id': document_id})
+
+        # ── 1. Parse ────────────────────────────────────────────────
         content, doc_metadata = DocumentParserFactory.parse(file_path)
-        
-        # Use provided source or extracted filename
         source = source_name or doc_metadata.filename
-        
-        # Chunk document
-        self.update_state(state='PROCESSING', meta={'current': 'Chunking document...'})
-        chunk_service = IngestService()
-        chunks = chunk_service.chunk_text(content, source=source)
-        
+
+        # ── 2. Chunk ────────────────────────────────────────────────
+        self.update_state(state='PROCESSING', meta={'current': 'Chunking…', 'document_id': document_id})
+        chunks = IngestService().chunk_text(content, source=source)
         logger.info(f"Created {len(chunks)} chunks from {doc_metadata.filename}")
-        
-        # Generate embeddings
-        self.update_state(state='PROCESSING', meta={'current': f'Generating {len(chunks)} embeddings...'})
+
+        # ── 3. Embed ────────────────────────────────────────────────
         embedding_service = EmbeddingService()
         embedded_chunks = []
-        
         for i, chunk in enumerate(chunks):
             if i % 10 == 0:
                 self.update_state(
                     state='PROCESSING',
-                    meta={'current': f'Embedding chunk {i+1}/{len(chunks)}...'}
+                    meta={'current': f'Embedding {i+1}/{len(chunks)}…', 'document_id': document_id},
                 )
-            
-            # Generate embedding for chunk
-            embedding = embedding_service.generate_embedding(chunk.text)
-            
-            # Create embedded chunk
             from app.schemas.chunk import EmbeddedChunk
-            embedded_chunk = EmbeddedChunk(
-                chunk_id=chunk.id,
+            embedded_chunks.append(EmbeddedChunk(
+                chunk_id=str(chunk.id),
                 text=chunk.text,
                 source=chunk.source,
-                embedding=embedding,
-                metadata={
-                    **chunk.metadata,
-                    'document_metadata': doc_metadata.to_dict(),
-                    'ingestion_task_id': self.request.id,
-                }
-            )
-            embedded_chunks.append(embedded_chunk)
-        
-        # Store embeddings
-        self.update_state(state='PROCESSING', meta={'current': 'Storing embeddings...'})
+                embedding=embedding_service.generate_embedding(chunk.text),
+                metadata={**(chunk.metadata or {}), 'ingestion_task_id': self.request.id},
+            ))
+
+        # ── 4. Store embeddings ─────────────────────────────────────
+        self.update_state(state='PROCESSING', meta={'current': 'Storing embeddings…', 'document_id': document_id})
         store = get_embedding_store()
         store.save(embedded_chunks)
-        
-        # Reindex hybrid search if enabled
-        settings = get_settings()
-        if settings.enable_hybrid_search:
-            from app.services.retrieval_service import RetrievalService
+
+        if get_settings().enable_hybrid_search:
             try:
-                retrieval = RetrievalService()
-                retrieval.index()
-                logger.info("Reindexed hybrid search after document ingestion")
+                from app.services.retrieval_service import RetrievalService
+                RetrievalService().index()
             except Exception as e:
-                logger.warning(f"Failed to reindex hybrid search: {e}")
-        
+                logger.warning(f"Hybrid search reindex failed: {e}")
+
+        # ── 5. AI Metadata Extraction ────────────────────────────────
+        extraction = {}
+        confidence = {"overall": "NONE", "overall_score": 0.0, "scores": {}, "review_fields": []}
+        try:
+            self.update_state(state='PROCESSING', meta={'current': 'Extracting intelligence…', 'document_id': document_id})
+            from app.services.document_metadata_extractor_service import (
+                DocumentMetadataExtractor, apply_extraction_to_document,
+            )
+            extractor = DocumentMetadataExtractor()
+            extraction = extractor.extract(content)
+            logger.info(f"Metadata extracted for {doc_metadata.filename}: "
+                        f"course={extraction.get('course_title')}, "
+                        f"dates={len(extraction.get('important_dates', []))}")
+        except Exception as e:
+            logger.warning(f"Metadata extraction failed (non-fatal): {e}")
+
+        # ── 6. Confidence Scoring ────────────────────────────────────
+        try:
+            if extraction:
+                from app.services.confidence_scorer import ConfidenceScorer
+                confidence = ConfidenceScorer().score_extraction(extraction)
+                logger.info(f"Confidence band: {confidence['overall']} ({confidence['overall_score']:.2f})")
+        except Exception as e:
+            logger.warning(f"Confidence scoring failed (non-fatal): {e}")
+
+        # ── 7. Persist chunk count + ingestion time (always) ────────
+        if doc is not None:
+            try:
+                doc.num_chunks = len(embedded_chunks)
+                doc.ingested_at = datetime.utcnow()
+                db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to persist num_chunks/ingested_at: {e}")
+                db.rollback()
+
+        # ── 7b. Persist extraction onto the Document record ──────────
+        if doc is not None and extraction:
+            try:
+                apply_extraction_to_document(db, doc, extraction)
+                doc.confidence_band = confidence.get("overall", "NONE")
+                db.commit()
+                db.refresh(doc)
+            except Exception as e:
+                logger.warning(f"Failed to persist extraction: {e}")
+                db.rollback()
+
+        # ── 8. Entity Provisioning ───────────────────────────────────
+        provisioned_course_id = None
+        try:
+            if doc is not None and extraction and confidence.get("overall") == "HIGH":
+                from app.services.entity_provisioner_service import EntityProvisioner
+                from app.db.models import User
+                user = db.query(User).filter(User.id == doc.user_id).first()
+                if user:
+                    result_p = EntityProvisioner().provision(db, doc, extraction, confidence, doc.user_id)
+                    provisioned_course_id = result_p.course_id
+                    logger.info(f"Auto-provisioned: course={result_p.course_id}, "
+                                f"deadlines={result_p.deadlines_created}, "
+                                f"flashcards={result_p.flashcards_created}")
+        except Exception as e:
+            logger.warning(f"Entity provisioning failed (non-fatal): {e}")
+
+        # ── 9. Mark document completed ───────────────────────────────
+        _update_doc_status("completed")
+
         result = {
             'task_id': self.request.id,
+            'document_id': document_id,
             'filename': doc_metadata.filename,
-            'document_type': doc_metadata.document_type.value,
+            'document_type': doc_metadata.document_type.value if doc_metadata.document_type else 'unknown',
             'num_chunks': len(embedded_chunks),
             'num_words': doc_metadata.num_words,
             'source': source,
+            'confidence_band': confidence.get('overall', 'NONE'),
+            'extracted_title': extraction.get('course_title') or (extraction.get('summary') or '')[:60],
+            'course_id': provisioned_course_id,
             'status': 'completed',
             'completed_at': datetime.utcnow().isoformat(),
         }
-        
-        logger.info(f"Completed ingestion for: {doc_metadata.filename}")
+        logger.info(f"Ingestion complete for: {doc_metadata.filename}")
         return result
-        
+
     except Exception as e:
-        logger.error(f"Error during document ingestion: {e}", exc_info=True)
-        self.update_state(state='FAILURE', meta={'error': str(e)})
+        logger.error(f"Ingestion task failed: {e}", exc_info=True)
+        _update_doc_status("failed", str(e))
+        self.update_state(state='FAILURE', meta={'error': str(e), 'document_id': document_id})
         raise
+    finally:
+        db.close()
 
 
 @celery_app.task(name='tasks.ingest_batch')
@@ -213,19 +291,20 @@ class TaskManager:
     """Manager for Celery task operations and monitoring."""
     
     @staticmethod
-    def submit_ingestion(file_path: str, source_name: str = None) -> str:
+    def submit_ingestion(file_path: str, source_name: str = None, document_id: str = None) -> str:
         """
         Submit a document for async ingestion.
-        
+
         Args:
-            file_path: Path to document
-            source_name: Optional custom source name
-            
+            file_path:    Path to document on disk
+            source_name:  Optional display name
+            document_id:  DB Document UUID (pre-created by upload route)
+
         Returns:
-            Task ID for status tracking
+            Celery task ID for status tracking
         """
-        task = ingest_document_task.delay(file_path, source_name)
-        logger.info(f"Submitted ingestion task: {task.id}")
+        task = ingest_document_task.delay(file_path, source_name, document_id)
+        logger.info(f"Submitted ingestion task: {task.id} for document={document_id}")
         return task.id
     
     @staticmethod

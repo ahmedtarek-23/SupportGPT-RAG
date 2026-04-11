@@ -10,6 +10,77 @@ from app.db.session import init_db, get_engine, get_session_factory
 from app.services.embedding_precompute import precompute_embeddings
 from app.services.embedding_store_factory import get_embedding_store
 
+logger = logging.getLogger(__name__)
+
+
+def run_schema_migrations():
+    """
+    Apply additive ALTER TABLE / CREATE TABLE migrations.
+
+    Safe to run multiple times — each statement checks for existence first.
+    Called automatically on startup from app/main.py.
+    """
+    engine = get_engine()
+    migrations = [
+        # ── documents table additions ─────────────────────────────
+        """
+        ALTER TABLE documents
+          ADD COLUMN IF NOT EXISTS confidence_band VARCHAR(20) DEFAULT NULL
+        """,
+        """
+        ALTER TABLE documents
+          ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP DEFAULT NULL
+        """,
+        """
+        ALTER TABLE documents
+          ADD COLUMN IF NOT EXISTS keywords TEXT[] DEFAULT '{}'
+        """,
+        # ── flashcards table additions ────────────────────────────
+        """
+        ALTER TABLE flashcards
+          ADD COLUMN IF NOT EXISTS document_id UUID
+            REFERENCES documents(id) ON DELETE SET NULL
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS ix_flashcards_document_id
+          ON flashcards(document_id)
+        """,
+        # ── courses table additions ───────────────────────────────
+        """
+        ALTER TABLE courses
+          ADD COLUMN IF NOT EXISTS difficulty_score FLOAT DEFAULT NULL
+        """,
+        """
+        ALTER TABLE courses
+          ADD COLUMN IF NOT EXISTS primary_document_id UUID
+            REFERENCES documents(id) ON DELETE SET NULL
+        """,
+        # ── document_processing_events table ─────────────────────
+        """
+        CREATE TABLE IF NOT EXISTS document_processing_events (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          event_type VARCHAR(50) NOT NULL,
+          message TEXT,
+          progress_pct INTEGER DEFAULT 0,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS ix_doc_events_document
+          ON document_processing_events(document_id, created_at)
+        """,
+    ]
+
+    with engine.connect() as conn:
+        for sql in migrations:
+            try:
+                conn.execute(__import__("sqlalchemy").text(sql.strip()))
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                logger.warning(f"Migration skipped (may already exist): {e}")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

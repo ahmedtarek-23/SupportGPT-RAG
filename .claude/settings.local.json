@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"c:/Users/Ahmed/Desktop/Projects/SupportGPT-RAG/support agent/rag-support-agent/app/services/\"*service*)",
+      "Bash(docker compose:*)",
+      "Bash(curl -s http://localhost:8000/)",
+      "Bash(python -m json.tool)",
+      "Bash(npx tsc:*)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(npm run:*)",
+      "Read(//tmp/**)",
+      "Bash(find \"/c/Users/Ahmed/Desktop/Projects/SupportGPT-RAG/support agent/rag-support-agent/frontend/src/app/pages/\" -name \"*.tsx\" -exec basename {} \\\\;)",
+      "Bash(npm install:*)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(grep -l \"class.*Service\" \"support agent/rag-support-agent/app/services/\"*.py)",
+      "Bash(grep -E \"\\\\.ts$\")",
+      "Bash(tasklist /FI \"PID eq 9808\" /FO LIST)",
+      "Bash(tasklist /FI \"PID eq 24240\" /FO LIST)",
+      "Bash(cmd /c \"tasklist /FI \\\\\"PID eq 9808\\\\\" /FO LIST && tasklist /FI \\\\\"PID eq 24240\\\\\" /FO LIST\")",
+      "Bash(cmd /c \"wmic process where processid=9808 get name,processid,commandline 2>nul\")",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/api/health)",
+      "Bash(break)",
+      "Bash(docker restart:*)",
+      "Bash(curl -s http://localhost:11434/api/generate -d '{\"model\":\"llama3\",\"prompt\":\"hi\",\"stream\":false}')",
+      "Bash(curl -s -X POST http://localhost:11434/api/generate -d '{\"model\":\"llama3\",\"prompt\":\"Say OK\",\"stream\":false}')",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('done_reason:', d.get\\('done_reason'\\), 'total_ms:', d.get\\('total_duration',0\\)//1000000\\)\")"
+    ]
+  }
+}

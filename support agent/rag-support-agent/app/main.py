@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.services.embedding_precompute import precompute_embeddings
 from app.services.retrieval_service import RetrievalService
-from app.api.routes import chat, documents, feedback, health
+from app.api.routes import chat, documents, feedback, health, deadlines, notifications, planner, flashcards, analytics
 
 # Setup logging
 setup_logging()
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events."""
     # Startup
-    logger.info("Starting SupportGPT-RAG application...")
+    logger.info("Starting StudyMate...")
     settings = get_settings()
 
     # Initialize database if using pgvector
@@ -31,6 +31,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             logger.warning("Continuing with application startup - database may not be available")
+
+        # Run additive schema migrations (safe to re-run on every boot)
+        try:
+            from app.db.migration import run_schema_migrations
+            run_schema_migrations()
+            logger.info("✓ Schema migrations applied")
+        except Exception as e:
+            logger.warning(f"Schema migration warning (non-fatal): {e}")
 
     if settings.precompute_on_startup:
         try:
@@ -59,22 +67,27 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logger.info("Shutting down SupportGPT-RAG application...")
+    logger.info("Shutting down StudyMate...")
 
 
 # Create FastAPI app
 app = FastAPI(
-    title="SupportGPT-RAG",
-    description="AI-powered customer support agent with RAG",
-    version="0.1.0",
+    title="StudyMate — AI Academic Operating System",
+    description="Upload lecture PDFs and let AI extract your courses, deadlines, flashcards and study plan.",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
 # Add CORS middleware
 settings = get_settings()
+_cors_origins = (
+    ["*"]
+    if settings.cors_origins.strip() == "*"
+    else [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict this in production
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,15 +99,52 @@ app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(documents.router, prefix="/api", tags=["documents"])
 app.include_router(feedback.router, prefix="/api", tags=["feedback"])
 
+# University Productivity Platform routes
+app.include_router(deadlines.router, prefix="/api", tags=["deadlines"])
+app.include_router(notifications.router, prefix="/api", tags=["notifications"])
+app.include_router(planner.router, prefix="/api", tags=["planner"])
+app.include_router(flashcards.router, prefix="/api", tags=["flashcards"])
+app.include_router(analytics.router, prefix="/api", tags=["analytics"])
+
 
 @app.get("/")
 async def root():
     """Root endpoint."""
+    from app.services.ollama_service import get_active_model, is_ollama_available
     return {
-        "message": "SupportGPT-RAG API",
-        "version": "0.1.0",
+        "message": "StudyMate — AI Academic Operating System",
+        "version": "3.0.0",
         "docs": "/docs",
+        "ai_backend": "Ollama (local)",
+        "ai_model": get_active_model(),
+        "ollama_available": is_ollama_available(),
+        "features": [
+            "RAG-powered academic assistant (local LLM)",
+            "Smart deadline management",
+            "AI study planner",
+            "Document Intelligence (auto-extract deadlines, instructor info, summaries)",
+            "Notification system",
+            "Flashcard generation (SM-2)",
+            "Student analytics (real DB aggregation)",
+            "AI insights engine",
+        ],
     }
+
+
+@app.get("/api/dashboard")
+async def dashboard_summary():
+    """Get aggregated dashboard data."""
+    from app.db.session import get_session_factory
+    from app.services.dashboard_service import DashboardService
+    from uuid import UUID
+
+    user_id = UUID("00000000-0000-0000-0000-000000000001")
+    SessionLocal = get_session_factory()
+    db = SessionLocal()
+    try:
+        return DashboardService.get_dashboard_summary(db, user_id)
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

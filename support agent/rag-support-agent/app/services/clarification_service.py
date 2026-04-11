@@ -194,8 +194,9 @@ class ClarificationService:
             ClarificationQuestion or None
         """
         try:
+            from app.services.ollama_service import get_active_model
             response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=get_active_model(),
                 messages=[
                     {
                         "role": "system",

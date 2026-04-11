@@ -3,14 +3,14 @@ version: '3.8'
 services:
   # PostgreSQL with pgvector extension
   postgres:
-    image: pgvector/pgvector:0.5.1-pg16
-    container_name: supportgpt_postgres
+    image: pgvector/pgvector:pg16
+    container_name: studymate_postgres
     environment:
       POSTGRES_USER: supportgpt
-      POSTGRES_PASSWORD: supportgpt_password
-      POSTGRES_DB: supportgpt_db
+      POSTGRES_PASSWORD: studymate_password
+      POSTGRES_DB: studymate_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
   # Redis for caching and session management
   redis:
     image: redis:7-alpine
-    container_name: supportgpt_redis
+    container_name: studymate_redis
     ports:
       - "6379:6379"
     volumes:
@@ -34,13 +34,46 @@ services:
       retries: 5
     command: redis-server --appendonly yes
 
-  # SupportGPT-RAG API (optional, for local development)
+  # Ollama — local LLM server (llama3 / mistral / phi3)
+  # First run: docker exec -it studymate_ollama ollama pull llama3
+  # or:        docker exec -it studymate_ollama ollama pull mistral
+  ollama:
+    image: ollama/ollama:latest
+    container_name: studymate_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # StudyMate API
   api:
     build: .
-    container_name: supportgpt_api
+    container_name: studymate_api
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      DATABASE_URL: postgresql://supportgpt:supportgpt_password@postgres:5432/supportgpt_db
+      # Ollama local AI (no OpenAI key needed)
+      OPENAI_API_KEY: "ollama"
+      OLLAMA_BASE_URL: "http://ollama:11434/v1"
+      OLLAMA_MODEL: "llama3"
+      USE_LOCAL_AI: "true"
+      CHAT_MODEL: "llama3"
+      EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+      EMBEDDING_DIMENSIONS: "384"
+      # Infrastructure
+      DATABASE_URL: postgresql://supportgpt:studymate_password@postgres:5432/studymate_db
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
@@ -52,6 +85,8 @@ services:
       DEBUG: "false"
     ports:
       - "8000:8000"
+    volumes:
+      - uploads_data:/app/.uploads   # shared with celery_worker
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,19 +94,40 @@ services:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-  # Celery Worker for async document ingestion (Phase 5)
+  # React Frontend (built by Vite, served by Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: studymate_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Celery Worker for async document ingestion
   celery_worker:
     build: .
-    container_name: supportgpt_worker
+    container_name: studymate_worker
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      DATABASE_URL: postgresql://supportgpt:supportgpt_password@postgres:5432/supportgpt_db
+      OPENAI_API_KEY: "ollama"
+      OLLAMA_BASE_URL: "http://ollama:11434/v1"
+      OLLAMA_MODEL: "llama3"
+      USE_LOCAL_AI: "true"
+      EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+      EMBEDDING_DIMENSIONS: "384"
+      DATABASE_URL: postgresql://supportgpt:studymate_password@postgres:5432/studymate_db
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
       EMBEDDING_STORE_TYPE: pgvector
       ENABLE_ASYNC_INGESTION: "true"
       ENABLE_HYBRID_SEARCH: "true"
+      QUERY_EXPANSION_DECOMPOSITION: "false"
+      QUERY_EXPANSION_MAX_EXPANSIONS: "2"
+    volumes:
+      - uploads_data:/app/.uploads   # shared with api service
     depends_on:
       postgres:
         condition: service_healthy
@@ -87,3 +143,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ollama_models:    # Persists downloaded LLM weights between container restarts
+  uploads_data:     # Shared upload directory between api and celery_worker

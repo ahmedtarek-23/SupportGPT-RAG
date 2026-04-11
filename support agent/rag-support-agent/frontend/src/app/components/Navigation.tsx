@@ -89,7 +89,7 @@ export function Navigation() {
               backgroundClip: "text",
             }}
           >
-            StudyBot
+            StudyMate
           </span>
         </button>
 

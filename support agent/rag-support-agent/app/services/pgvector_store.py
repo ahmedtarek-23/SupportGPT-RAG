@@ -105,7 +105,7 @@ class PgVectorStore(EmbeddingStore):
 
             chunks = [
                 EmbeddedChunk(
-                    chunk_id=chunk.chunk_id,
+                    chunk_id=str(chunk.chunk_id),
                     text=chunk.text,
                     source=chunk.source,
                     embedding=chunk.embedding,

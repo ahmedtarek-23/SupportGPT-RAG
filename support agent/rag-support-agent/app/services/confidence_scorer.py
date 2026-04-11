@@ -316,6 +316,87 @@ class ConfidenceScorer:
         
         return attribution
     
+    # ── Extraction confidence scoring (document metadata) ─────────
+
+    def score_extraction(self, extraction: dict) -> dict:
+        """
+        Score the confidence of an AI-extracted document metadata result.
+
+        Returns a dict with:
+          - overall: "HIGH" | "LOW" | "NONE"
+          - scores: per-field float (0.0-1.0)
+          - review_fields: list of field names that need human review
+        """
+        scores: dict[str, float] = {}
+
+        # course_title
+        title = extraction.get("course_title") or ""
+        scores["course_title"] = (
+            0.9 if len(title) > 6
+            else 0.5 if len(title) > 2
+            else 0.0
+        )
+
+        # course_code  (e.g. CS201, MATH301)
+        code = extraction.get("course_code") or ""
+        import re as _re
+        scores["course_code"] = 0.9 if _re.match(r"^[A-Z]{2,6}\d{2,4}$", code) else (0.4 if code else 0.0)
+
+        # instructor_name
+        instructor = extraction.get("instructor_name") or ""
+        has_title = any(t in instructor for t in ("Dr.", "Prof.", "Mr.", "Ms.", "Mrs."))
+        words = instructor.strip().split()
+        scores["instructor_name"] = (
+            0.95 if has_title and len(words) >= 2
+            else 0.70 if len(words) >= 2
+            else 0.30 if instructor
+            else 0.0
+        )
+
+        # instructor_email
+        email = extraction.get("instructor_email") or ""
+        scores["instructor_email"] = (
+            0.95 if _re.match(r"^[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}$", email)
+            else 0.0
+        )
+
+        # important_dates
+        dates = extraction.get("important_dates") or []
+        valid_dates = [
+            d for d in dates
+            if isinstance(d, dict) and d.get("date") and _re.match(r"\d{4}-\d{2}-\d{2}", str(d.get("date", "")))
+        ]
+        scores["important_dates"] = min(1.0, len(valid_dates) * 0.25) if valid_dates else 0.0
+
+        # flashcard_candidates
+        fc = extraction.get("flashcard_candidates") or []
+        valid_fc = [c for c in fc if isinstance(c, dict) and c.get("question", "").endswith("?") and c.get("answer")]
+        scores["flashcard_candidates"] = min(1.0, len(valid_fc) * 0.15)
+
+        # summary
+        summary = extraction.get("summary") or ""
+        scores["summary"] = 0.8 if len(summary.split()) >= 15 else (0.4 if summary else 0.0)
+
+        # Overall band
+        non_zero = [v for v in scores.values() if v > 0]
+        overall_float = sum(non_zero) / len(non_zero) if non_zero else 0.0
+
+        if overall_float >= 0.70:
+            band = "HIGH"
+        elif overall_float >= 0.35:
+            band = "LOW"
+        else:
+            band = "NONE"
+
+        review_fields = [k for k, v in scores.items() if 0.0 < v < 0.70]
+
+        return {
+            "overall": band,
+            "overall_score": round(overall_float, 3),
+            "scores": {k: round(v, 3) for k, v in scores.items()},
+            "review_fields": review_fields,
+        }
+
     def should_provide_answer(self, confidence_score: ConfidenceScore) -> bool:
         """
         Determine if system should provide answer based on confidence.

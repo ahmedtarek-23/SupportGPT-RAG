@@ -1,7 +1,7 @@
 
-  # Futuristic Premium Website Design
+  # StudyMate Frontend
 
-  This is a code bundle for Futuristic Premium Website Design. The original project is available at https://www.figma.com/design/s5ZaCQ220GEKFqdWrMhR9v/Futuristic-Premium-Website-Design.
+  React 18 + Vite + TypeScript frontend for the StudyMate AI Academic Operating System.
 
   ## Running the code
 

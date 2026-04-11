@@ -1,5 +1,5 @@
 import logging
-from openai import OpenAI
+from app.services.ollama_service import get_ollama_client, get_active_model
 from app.services.retrieval_service import RetrievalService
 from app.services.reranking_service import RerankerService
 from app.services.cache_service import CacheService
@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 class RAGService:
-    """RAG (Retrieval-Augmented Generation) service with advanced conversation features (Phase 6)."""
+    """RAG (Retrieval-Augmented Generation) service — powered by local Ollama LLM."""
 
     def __init__(self):
         settings = get_settings()
-        self.client = OpenAI(api_key=settings.openai_api_key)
-        self.chat_model = settings.chat_model
+        self.client = get_ollama_client()
+        self.chat_model = get_active_model()
         self.retrieval_service = RetrievalService()
         self.reranker = RerankerService() if settings.enable_reranking else None
         self.cache = CacheService()
@@ -196,6 +196,7 @@ Answer:"""
                 ],
                 temperature=0.7,
                 max_tokens=512,
+                timeout=25,
             )
 
             answer = response.choices[0].message.content
@@ -204,7 +205,7 @@ Answer:"""
 
         except Exception as e:
             logger.error(f"Error generating answer: {e}")
-            raise
+            return "The AI is currently unavailable. Please ensure Ollama is running and try again."
 
     def answer_query(self, query: str, top_k: int | None = None, session_id: str | None = None) -> dict:
         """

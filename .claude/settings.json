@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker info:*)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(docker exec:*)",
+      "Bash(netstat -ano)"
+    ]
+  }
+}
