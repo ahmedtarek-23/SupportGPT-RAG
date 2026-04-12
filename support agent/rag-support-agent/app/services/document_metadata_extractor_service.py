@@ -34,7 +34,7 @@ Return ONLY valid JSON with these exact keys. Use null for fields not found in t
     {{"day": "Monday", "start": "10:00", "end": "12:00", "location": "Room 301"}}
   ],
   "semester": "e.g. Spring 2026 or null",
-  "summary": "2-3 sentence summary of what this document covers",
+  "summary": "Academic summary: key topics covered, purpose of document, and what the student should know (4-6 sentences)",
   "important_dates": [
     {{"label": "Midterm Exam", "date": "YYYY-MM-DD", "type": "exam"}}
   ],
@@ -51,7 +51,7 @@ Rules:
 - office_hours is an array (can be empty [])
 - important_dates type is one of: exam, assignment, project, quiz, lecture, other
 - include at most 10 flashcard_candidates focusing on key concepts
-- keep summary concise (2-3 sentences max)
+- summary must be 4-6 sentences covering what this document teaches, its main topics, and what the student should take away
 
 DOCUMENT TEXT:
 {text}

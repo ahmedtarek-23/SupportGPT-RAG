@@ -365,8 +365,9 @@ Return ONLY valid JSON, no markdown code fences."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.7,
-                max_tokens=1200,
+                temperature=0.3,
+                top_p=0.9,
+                max_tokens=1500,
                 timeout=60,
             )
 

@@ -168,7 +168,7 @@ class FlashcardService:
             try:
                 from app.services.retrieval_service import RetrievalService
                 retrieval = RetrievalService()
-                query = topic or f"key concepts from {source_document}"
+                query = topic or f"key concepts, definitions, formulas, important dates from {source_document}"
                 chunks = retrieval.retrieve(query, top_k=10)
                 if chunks:
                     context_text = "\n\n".join([
@@ -178,23 +178,25 @@ class FlashcardService:
                 logger.warning(f"Failed to retrieve context for flashcards: {e}")
 
         if not context_text:
+            if source_document:
+                return []  # Refuse to generate without real context — avoid hallucination
             context_text = f"Topic: {topic or 'General academic content'}"
 
         # Generate flashcards with AI
-        system_prompt = """You are an expert academic educator. Generate flashcards suitable for spaced repetition study.
+        system_prompt = """You are an expert academic flashcard creator for university students.
 
-Rules:
-1. Each flashcard should test ONE concept.
-2. Questions should be clear and unambiguous.
-3. Answers should be concise but complete.
-4. Include a mix of factual recall, conceptual understanding, and application questions.
-5. Rate difficulty 1-5 (1=easy recall, 5=complex synthesis).
+CRITICAL RULES:
+1. Generate flashcards ONLY from the provided course material context.
+2. Do NOT invent facts, dates, formulas, or definitions not present in the context.
+3. If context is insufficient for a question, skip it — do not guess.
+4. Each card tests ONE concept: a definition, a formula, a date, a process, or a key term.
+5. Questions must be clear and unambiguous.
+6. Answers must be accurate, concise, and directly derived from the source material.
+7. Rate difficulty 1-5: 1=simple recall, 3=application, 5=synthesis.
+8. Mix question types: definition ("What is X?"), application ("How does X work?"), date/fact recall.
 
-Return a JSON array:
-[
-    {"question": "What is...", "answer": "It is...", "difficulty": 2},
-    ...
-]"""
+Return a JSON array only:
+[{"question": "...", "answer": "...", "difficulty": 2}, ...]"""
 
         user_prompt = f"""Generate {count} flashcards from this academic content:
 
@@ -209,8 +211,9 @@ Return ONLY a valid JSON array, no markdown."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.7,
-                max_tokens=800,
+                temperature=0.2,
+                top_p=0.9,
+                max_tokens=1400,
             )
 
             content = response.choices[0].message.content.strip()

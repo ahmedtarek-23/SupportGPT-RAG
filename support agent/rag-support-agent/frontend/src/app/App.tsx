@@ -1,5 +1,6 @@
 import { Navigate, BrowserRouter, Routes, Route } from "react-router";
 import { Toaster } from "sonner";
+import { ThemeProvider } from "./context/ThemeContext";
 import { DashboardLayout } from "./layouts/DashboardLayout";
 import DashboardPage from "./pages/DashboardPage";
 import CoursesPage from "./pages/CoursesPage";
@@ -14,18 +15,19 @@ import SettingsPage from "./pages/SettingsPage";
 
 export default function App() {
   return (
+    <ThemeProvider>
     <BrowserRouter>
       <Toaster
         position="bottom-right"
         toastOptions={{
           style: {
-            background: "rgba(8,10,28,0.97)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            color: "#e8f0ff",
+            background: "var(--sm-sidebar-bg)",
+            border: "1px solid var(--sm-border)",
+            color: "var(--sm-text-primary)",
             fontFamily: "Space Grotesk, sans-serif",
             fontSize: 14,
             borderRadius: 14,
-            backdropFilter: "blur(24px)",
+            backdropFilter: "blur(var(--sm-backdrop-blur))",
           },
         }}
       />
@@ -49,5 +51,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
+    </ThemeProvider>
   );
 }

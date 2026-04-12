@@ -2,6 +2,89 @@
 @import './tailwind.css';
 @import './theme.css';
 
+/* ── StudyMate Theme Variables ───────────────────────────────────────────── */
+
+/* Default: Dark Glassmorphism */
+:root,
+[data-theme="dark"] {
+  --sm-bg: #03040F;
+  --sm-sidebar-bg: rgba(5, 6, 17, 0.95);
+  --sm-surface: rgba(255, 255, 255, 0.04);
+  --sm-surface-hover: rgba(255, 255, 255, 0.07);
+  --sm-border: rgba(255, 255, 255, 0.08);
+  --sm-border-subtle: rgba(255, 255, 255, 0.06);
+  --sm-text-primary: #e8f0ff;
+  --sm-text-secondary: rgba(160, 180, 230, 0.65);
+  --sm-text-tertiary: rgba(160, 180, 230, 0.3);
+  --sm-accent-1: #0066FF;
+  --sm-accent-2: #7B2FBE;
+  --sm-accent-3: #00D4FF;
+  --sm-nav-active-bg: linear-gradient(135deg, rgba(0,102,255,0.15), rgba(123,47,190,0.1));
+  --sm-logo-glow: rgba(0, 102, 255, 0.4);
+  --sm-scrollbar-track: #03040F;
+  --sm-scrollbar-thumb: rgba(0, 102, 255, 0.4);
+  --sm-scrollbar-hover: rgba(0, 102, 255, 0.7);
+  --sm-input-bg: rgba(255, 255, 255, 0.04);
+  --sm-input-border: rgba(255, 255, 255, 0.08);
+  --sm-placeholder: rgba(160, 180, 230, 0.3);
+  --sm-selection-bg: rgba(0, 102, 255, 0.3);
+  --sm-backdrop-blur: 24px;
+}
+
+/* Space Theme */
+[data-theme="space"] {
+  --sm-bg: #060918;
+  --sm-sidebar-bg: rgba(4, 6, 22, 0.97);
+  --sm-surface: rgba(10, 15, 45, 0.65);
+  --sm-surface-hover: rgba(15, 22, 65, 0.85);
+  --sm-border: rgba(80, 130, 255, 0.18);
+  --sm-border-subtle: rgba(80, 130, 255, 0.1);
+  --sm-text-primary: #c8d8ff;
+  --sm-text-secondary: rgba(140, 170, 255, 0.65);
+  --sm-text-tertiary: rgba(120, 150, 255, 0.35);
+  --sm-accent-1: #4080FF;
+  --sm-accent-2: #9040E0;
+  --sm-accent-3: #40E8FF;
+  --sm-nav-active-bg: linear-gradient(135deg, rgba(64,128,255,0.2), rgba(144,64,224,0.15));
+  --sm-logo-glow: rgba(64, 128, 255, 0.5);
+  --sm-scrollbar-track: #060918;
+  --sm-scrollbar-thumb: rgba(64, 128, 255, 0.45);
+  --sm-scrollbar-hover: rgba(64, 128, 255, 0.75);
+  --sm-input-bg: rgba(10, 15, 50, 0.6);
+  --sm-input-border: rgba(80, 130, 255, 0.18);
+  --sm-placeholder: rgba(120, 150, 255, 0.3);
+  --sm-selection-bg: rgba(64, 128, 255, 0.3);
+  --sm-backdrop-blur: 28px;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --sm-bg: #F2F5FF;
+  --sm-sidebar-bg: rgba(255, 255, 255, 0.97);
+  --sm-surface: rgba(255, 255, 255, 0.9);
+  --sm-surface-hover: rgba(255, 255, 255, 1);
+  --sm-border: rgba(0, 80, 200, 0.1);
+  --sm-border-subtle: rgba(0, 80, 200, 0.07);
+  --sm-text-primary: #0A1030;
+  --sm-text-secondary: rgba(30, 60, 160, 0.65);
+  --sm-text-tertiary: rgba(30, 60, 160, 0.35);
+  --sm-accent-1: #0055EE;
+  --sm-accent-2: #6020AA;
+  --sm-accent-3: #0099CC;
+  --sm-nav-active-bg: linear-gradient(135deg, rgba(0,85,238,0.1), rgba(96,32,170,0.07));
+  --sm-logo-glow: rgba(0, 85, 238, 0.3);
+  --sm-scrollbar-track: #E8EDFF;
+  --sm-scrollbar-thumb: rgba(0, 85, 238, 0.35);
+  --sm-scrollbar-hover: rgba(0, 85, 238, 0.6);
+  --sm-input-bg: rgba(255, 255, 255, 0.95);
+  --sm-input-border: rgba(0, 80, 200, 0.12);
+  --sm-placeholder: rgba(30, 60, 160, 0.3);
+  --sm-selection-bg: rgba(0, 85, 238, 0.2);
+  --sm-backdrop-blur: 20px;
+}
+
+/* ── Base styles ─────────────────────────────────────────────────────────── */
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -13,38 +96,95 @@ html {
 }
 
 body {
-  background: #03040F;
-  color: #fff;
+  background: var(--sm-bg);
+  color: var(--sm-text-primary);
   font-family: 'Space Grotesk', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background 0.3s ease, color 0.3s ease;
 }
+
+/* ── Space theme: starfield + nebula background ──────────────────────────── */
+
+[data-theme="space"] body {
+  background-color: #060918;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.18) 1px, transparent 0),
+    radial-gradient(circle at 1px 1px, rgba(200, 220, 255, 0.10) 1px, transparent 0),
+    radial-gradient(circle at 1px 1px, rgba(160, 190, 255, 0.07) 1px, transparent 0);
+  background-size: 40px 40px, 80px 80px, 130px 130px;
+  background-position: 0 0, 20px 20px, 55px 65px;
+}
+
+[data-theme="space"] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse at 15% 80%, rgba(120, 40, 220, 0.09) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 15%, rgba(0, 80, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 55% 55%, rgba(0, 180, 255, 0.05) 0%, transparent 45%);
+}
+
+/* ── Light theme: subtle background pattern ──────────────────────────────── */
+
+[data-theme="light"] body {
+  background-color: #F2F5FF;
+  background-image: radial-gradient(circle at 1px 1px, rgba(0, 80, 200, 0.06) 1px, transparent 0);
+  background-size: 32px 32px;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
 
 ::-webkit-scrollbar {
   width: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #03040F;
+  background: var(--sm-scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 102, 255, 0.4);
+  background: var(--sm-scrollbar-thumb);
   border-radius: 100px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 102, 255, 0.7);
+  background: var(--sm-scrollbar-hover);
 }
 
 ::selection {
-  background: rgba(0, 102, 255, 0.3);
-  color: #fff;
+  background: var(--sm-selection-bg);
+  color: var(--sm-text-primary);
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: rgba(160, 180, 230, 0.3);
+  color: var(--sm-placeholder);
+}
+
+/* ── Responsive helpers ──────────────────────────────────────────────────── */
+
+.projects-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 900px) {
+  .projects-grid {
+    grid-template-columns: 1fr;
+  }
+  .projects-grid > * {
+    grid-column: span 1 !important;
+    aspect-ratio: 4/3 !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
 }
 
 /* Projects grid - responsive spanning */

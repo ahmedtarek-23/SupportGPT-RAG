@@ -18,14 +18,32 @@ from app.services.ollama_service import get_ollama_client, get_active_model
 logger = logging.getLogger(__name__)
 
 
-SUMMARY_PROMPT = """You are a helpful academic assistant. Summarize the following document for a student.
+SUMMARY_PROMPT = """You are an expert academic assistant. Produce a detailed academic summary of the document below for a university student.
 
-Write a clear, concise summary in 3-5 sentences covering:
-1. What the document is about
-2. Key topics or concepts covered
-3. Any important dates or requirements mentioned
+Structure your summary with these sections (use headers):
 
-Be direct and informative. No preamble.
+## Overview
+What this document is and its academic purpose (2-3 sentences).
+
+## Key Concepts
+Bullet list of the most important concepts, theories, or frameworks introduced.
+
+## Definitions & Terminology
+Any critical terms or definitions the student must know.
+
+## Formulas / Methods (if applicable)
+Any equations, algorithms, or step-by-step methods.
+
+## Important Dates & Deadlines
+Any dates, submission deadlines, exam dates, or milestones mentioned.
+
+## Instructor Notes & Requirements
+Any instructions, grading criteria, or teacher-specific notes.
+
+## Action Items
+What the student should do or prioritize after reading this document.
+
+Be thorough and academic. Target 400-700 words. No filler phrases.
 
 DOCUMENT TEXT:
 {text}
@@ -40,7 +58,7 @@ class SummaryService:
         self.client = get_ollama_client()
         self.model = get_active_model()
 
-    def generate_document_summary(self, text: str, max_chars: int = 6000) -> str:
+    def generate_document_summary(self, text: str, max_chars: int = 12000) -> str:
         """
         Generate a concise summary of document text.
 
@@ -61,8 +79,9 @@ class SummaryService:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": SUMMARY_PROMPT.format(text=text)}],
-                temperature=0.3,
-                max_tokens=400,
+                temperature=0.2,
+                top_p=0.9,
+                max_tokens=1200,
             )
             return response.choices[0].message.content.strip()
         except Exception as e:

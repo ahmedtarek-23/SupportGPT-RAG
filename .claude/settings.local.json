@@ -27,7 +27,23 @@
       "Bash(docker restart:*)",
       "Bash(curl -s http://localhost:11434/api/generate -d '{\"model\":\"llama3\",\"prompt\":\"hi\",\"stream\":false}')",
       "Bash(curl -s -X POST http://localhost:11434/api/generate -d '{\"model\":\"llama3\",\"prompt\":\"Say OK\",\"stream\":false}')",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('done_reason:', d.get\\('done_reason'\\), 'total_ms:', d.get\\('total_duration',0\\)//1000000\\)\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('done_reason:', d.get\\('done_reason'\\), 'total_ms:', d.get\\('total_duration',0\\)//1000000\\)\")",
+      "Bash(ls .env)",
+      "Bash(cat .env)",
+      "Bash(python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload)",
+      "Bash(psql -U postgres -c \"\\\\du\")",
+      "Bash(\"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -c \"\\\\du\")",
+      "Bash(PGPASSWORD='' \"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -h localhost -c \"\\\\du\")",
+      "Bash(PGPASSWORD='postgres' \"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -h localhost -c \"\\\\du\")",
+      "Bash(PGPASSWORD='Lmlo2090' \"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -h localhost)",
+      "Bash(PGPASSWORD='Lmlo2090' \"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -U postgres -h localhost -d supportgpt_db)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/)",
+      "Bash(taskkill /F /IM python.exe /T)",
+      "Bash(taskkill //F //IM python.exe //T)",
+      "Bash(curl -s -X POST http://localhost:8000/api/chat -H 'Content-Type: application/json' -d '{\"query\": \"hello\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/api/chat -H 'Content-Type: application/json' -d '{\"query\": \"hello, what can you help me with?\"}')",
+      "Bash(python -c:*)",
+      "Bash(echo \"PID: $!\")"
     ]
   }
 }

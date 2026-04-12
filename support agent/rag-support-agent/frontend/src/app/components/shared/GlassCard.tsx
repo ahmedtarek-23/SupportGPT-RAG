@@ -20,16 +20,16 @@ export function GlassCard({ children, style, hover = true, glow, onClick, classN
       onClick={onClick}
       className={className}
       style={{
-        background: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: "var(--sm-surface)",
+        border: "1px solid var(--sm-border)",
         borderRadius: 24,
         padding: 24,
         boxShadow: glow
-          ? `0 20px 80px rgba(0,0,0,0.2), 0 0 30px ${glow}`
-          : "0 20px 80px rgba(0,0,0,0.2)",
-        backdropFilter: "blur(24px)",
+          ? `0 20px 80px rgba(0,0,0,0.15), 0 0 30px ${glow}`
+          : "0 20px 80px rgba(0,0,0,0.15)",
+        backdropFilter: `blur(var(--sm-backdrop-blur))`,
         cursor: onClick ? "pointer" : "default",
-        transition: "border-color 0.3s ease, box-shadow 0.3s ease",
+        transition: "border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease",
         ...style,
       }}
     >
@@ -65,7 +65,7 @@ export function PageHeader({ title, subtitle, icon }: { title: string; subtitle?
             fontFamily: "Syne, sans-serif",
             fontSize: "clamp(1.5rem, 3vw, 2rem)",
             fontWeight: 800,
-            color: "#fff",
+            color: "var(--sm-text-primary)",
             margin: 0,
             lineHeight: 1.2,
           }}
@@ -73,7 +73,7 @@ export function PageHeader({ title, subtitle, icon }: { title: string; subtitle?
           {title}
         </h1>
         {subtitle && (
-          <p style={{ color: "rgba(160, 180, 230, 0.6)", fontSize: 14, margin: "4px 0 0" }}>
+          <p style={{ color: "var(--sm-text-secondary)", fontSize: 14, margin: "4px 0 0" }}>
             {subtitle}
           </p>
         )}

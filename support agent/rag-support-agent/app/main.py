@@ -21,24 +21,23 @@ async def lifespan(app: FastAPI):
     logger.info("Starting StudyMate...")
     settings = get_settings()
 
-    # Initialize database if using pgvector
-    if settings.embedding_store_type.lower() == "pgvector":
-        try:
-            logger.info("Initializing pgvector database...")
-            from app.db.session import init_db
-            init_db()
-            logger.info("✓ Database initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize database: {e}")
-            logger.warning("Continuing with application startup - database may not be available")
+    # Initialize database tables (always — pgvector tables skipped if extension unavailable)
+    try:
+        logger.info("Initializing database...")
+        from app.db.session import init_db
+        init_db()
+        logger.info("✓ Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        logger.warning("Continuing with application startup - database may not be available")
 
-        # Run additive schema migrations (safe to re-run on every boot)
-        try:
-            from app.db.migration import run_schema_migrations
-            run_schema_migrations()
-            logger.info("✓ Schema migrations applied")
-        except Exception as e:
-            logger.warning(f"Schema migration warning (non-fatal): {e}")
+    # Run additive schema migrations (safe to re-run on every boot)
+    try:
+        from app.db.migration import run_schema_migrations
+        run_schema_migrations()
+        logger.info("✓ Schema migrations applied")
+    except Exception as e:
+        logger.warning(f"Schema migration warning (non-fatal): {e}")
 
     if settings.precompute_on_startup:
         try:

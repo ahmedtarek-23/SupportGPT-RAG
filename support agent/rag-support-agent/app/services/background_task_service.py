@@ -287,25 +287,170 @@ def ingest_batch_task(file_paths: list, source_prefix: str = None):
     return task_ids
 
 
+def _run_ingestion_sync(file_path: str, source_name: str, document_id: str) -> None:
+    """Run the full ingestion pipeline synchronously (used when Celery/Redis is unavailable)."""
+    from datetime import datetime as _dt
+    from app.db.session import get_session_factory
+    from app.db.models import Document
+    from uuid import UUID as _UUID
+
+    SessionLocal = get_session_factory()
+    db = SessionLocal()
+    doc = None
+
+    def _set_status(status: str, note: str = ""):
+        if doc is not None:
+            doc.status = status
+            if note:
+                doc.error_message = note
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+    try:
+        from app.services.document_parser_service import DocumentParserFactory
+        from app.services.embedding_service import EmbeddingService
+        from app.services.embedding_store_factory import get_embedding_store
+        from app.services.ingestion_service import IngestService
+        from app.schemas.chunk import EmbeddedChunk
+
+        if document_id:
+            doc = db.query(Document).filter(Document.id == _UUID(document_id)).first()
+
+        logger.info(f"[sync] Starting ingestion for: {file_path} (doc={document_id})")
+        _set_status("processing")
+
+        content, doc_metadata = DocumentParserFactory.parse(file_path)
+        source = source_name or doc_metadata.filename
+
+        chunks = IngestService().chunk_text(content, source=source)
+        logger.info(f"[sync] Created {len(chunks)} chunks")
+
+        embedding_service = EmbeddingService()
+        embedded_chunks = [
+            EmbeddedChunk(
+                chunk_id=str(c.id),
+                text=c.text,
+                source=c.source,
+                embedding=embedding_service.generate_embedding(c.text),
+                metadata=c.metadata or {},
+            )
+            for c in chunks
+        ]
+
+        store = get_embedding_store()
+        store.save(embedded_chunks)
+
+        if get_settings().enable_hybrid_search:
+            try:
+                from app.services.retrieval_service import RetrievalService
+                RetrievalService().index()
+            except Exception as e:
+                logger.warning(f"[sync] Hybrid search reindex failed: {e}")
+
+        extraction = {}
+        confidence = {"overall": "NONE", "overall_score": 0.0}
+        try:
+            from app.services.document_metadata_extractor_service import (
+                DocumentMetadataExtractor, apply_extraction_to_document,
+            )
+            extraction = DocumentMetadataExtractor().extract(content)
+        except Exception as e:
+            logger.warning(f"[sync] Metadata extraction failed (non-fatal): {e}")
+
+        try:
+            if extraction:
+                from app.services.confidence_scorer import ConfidenceScorer
+                confidence = ConfidenceScorer().score_extraction(extraction)
+        except Exception as e:
+            logger.warning(f"[sync] Confidence scoring failed (non-fatal): {e}")
+
+        if doc is not None:
+            doc.num_chunks = len(embedded_chunks)
+            doc.ingested_at = _dt.utcnow()
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        if doc is not None and extraction:
+            try:
+                apply_extraction_to_document(db, doc, extraction)
+                doc.confidence_band = confidence.get("overall", "NONE")
+                db.commit()
+            except Exception as e:
+                logger.warning(f"[sync] Failed to persist extraction: {e}")
+                db.rollback()
+
+        try:
+            if doc is not None and extraction and confidence.get("overall") == "HIGH":
+                from app.services.entity_provisioner_service import EntityProvisioner
+                from app.db.models import User
+                user = db.query(User).filter(User.id == doc.user_id).first()
+                if user:
+                    EntityProvisioner().provision(db, doc, extraction, confidence, doc.user_id)
+        except Exception as e:
+            logger.warning(f"[sync] Entity provisioning failed (non-fatal): {e}")
+
+        _set_status("completed")
+        logger.info(f"[sync] Ingestion complete for: {doc_metadata.filename}")
+
+    except Exception as e:
+        logger.error(f"[sync] Ingestion failed: {e}", exc_info=True)
+        _set_status("failed", str(e))
+    finally:
+        db.close()
+
+
 class TaskManager:
     """Manager for Celery task operations and monitoring."""
-    
+
+    # In-process task registry when running without Celery
+    _local_tasks: dict = {}
+
     @staticmethod
     def submit_ingestion(file_path: str, source_name: str = None, document_id: str = None) -> str:
         """
         Submit a document for async ingestion.
 
-        Args:
-            file_path:    Path to document on disk
-            source_name:  Optional display name
-            document_id:  DB Document UUID (pre-created by upload route)
+        Tries Celery first; falls back to a background thread when Redis is
+        unavailable (local / no-Redis dev mode).
 
         Returns:
-            Celery task ID for status tracking
+            Task ID for status tracking
         """
-        task = ingest_document_task.delay(file_path, source_name, document_id)
-        logger.info(f"Submitted ingestion task: {task.id} for document={document_id}")
-        return task.id
+        # Try Celery — it will raise immediately if Redis is down
+        try:
+            task = ingest_document_task.apply_async(
+                args=[file_path, source_name, document_id],
+                connect_timeout=2,
+            )
+            logger.info(f"Submitted Celery task: {task.id} for document={document_id}")
+            return task.id
+        except Exception as celery_err:
+            logger.warning(
+                f"Celery unavailable ({celery_err.__class__.__name__}: {celery_err}). "
+                "Falling back to in-process background thread."
+            )
+
+        # Fallback: run ingestion in a daemon thread
+        import threading
+        task_id = str(uuid.uuid4())
+        TaskManager._local_tasks[task_id] = {"state": "PROCESSING", "document_id": document_id}
+
+        def _run():
+            try:
+                _run_ingestion_sync(file_path, source_name or "", document_id or "")
+                TaskManager._local_tasks[task_id]["state"] = "SUCCESS"
+            except Exception as e:
+                TaskManager._local_tasks[task_id]["state"] = "FAILURE"
+                TaskManager._local_tasks[task_id]["error"] = str(e)
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        logger.info(f"Started in-process ingestion thread: {task_id} for document={document_id}")
+        return task_id
     
     @staticmethod
     def submit_batch(file_paths: list, source_prefix: str = None) -> list:
@@ -327,22 +472,37 @@ class TaskManager:
     def get_task_status(task_id: str) -> dict:
         """
         Get status of an ingestion task.
-        
-        Args:
-            task_id: Task ID from submission
-            
-        Returns:
-            Dict with task status and metadata
+        Checks the local thread registry first, then Celery.
         """
-        result = AsyncResult(task_id, app=celery_app)
-        
-        return {
-            'task_id': task_id,
-            'state': result.state,
-            'progress': result.info if result.state == 'PROCESSING' else None,
-            'result': result.result if result.state == 'SUCCESS' else None,
-            'error': str(result.info) if result.state == 'FAILURE' else None,
-        }
+        # Local (no-Redis) task
+        local = TaskManager._local_tasks.get(task_id)
+        if local is not None:
+            return {
+                'task_id': task_id,
+                'state': local.get('state', 'PROCESSING'),
+                'progress': None,
+                'result': {'document_id': local.get('document_id')} if local.get('state') == 'SUCCESS' else None,
+                'error': local.get('error'),
+            }
+
+        # Celery task
+        try:
+            result = AsyncResult(task_id, app=celery_app)
+            return {
+                'task_id': task_id,
+                'state': result.state,
+                'progress': result.info if result.state == 'PROCESSING' else None,
+                'result': result.result if result.state == 'SUCCESS' else None,
+                'error': str(result.info) if result.state == 'FAILURE' else None,
+            }
+        except Exception:
+            return {
+                'task_id': task_id,
+                'state': 'UNKNOWN',
+                'progress': None,
+                'result': None,
+                'error': None,
+            }
     
     @staticmethod
     def cancel_task(task_id: str) -> bool:

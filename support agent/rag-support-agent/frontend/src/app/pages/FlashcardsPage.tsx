@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { Layers3, Sparkles, RotateCcw, Trash2, ChevronRight, ThumbsUp, ThumbsDown } from "lucide-react";
 import { GlassCard, PageHeader } from "../components/shared/GlassCard";
+import { toast } from "sonner";
 
 export default function FlashcardsPage() {
   const [cards, setCards] = useState<any[]>([]);
@@ -24,6 +25,17 @@ export default function FlashcardsPage() {
     };
     load();
   }, []);
+
+  useEffect(() => {
+    if (mode !== "review") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); setFlipped(f => !f); }
+      if (e.key === "ArrowRight" && flipped) reviewCard(4);
+      if (e.key === "ArrowLeft" && flipped) reviewCard(2);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [mode, flipped, currentIdx]);
 
   const fetchCards = () => fetch("/api/flashcards").then(r => r.json()).then(setCards).catch(() => {
     setCards([]);
@@ -57,16 +69,25 @@ export default function FlashcardsPage() {
     if (!genTopic) return;
     setGenerating(true);
     try {
-      await fetch("/api/flashcards/generate", {
+      const res = await fetch("/api/flashcards/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic: genTopic, count: genCount }),
       });
-      fetchCards();
-      fetchStats();
-      setMode("browse");
-      setGenTopic("");
-    } catch (e) { /* ignore */ }
+      const data = await res.json();
+      const generated = data?.generated ?? 0;
+      if (generated === 0) {
+        toast.error("No flashcards generated — no relevant course material found for this topic. Try uploading related documents first.");
+      } else {
+        toast.success(`Generated ${generated} flashcard${generated !== 1 ? "s" : ""} from your course material`);
+        fetchCards();
+        fetchStats();
+        setMode("browse");
+        setGenTopic("");
+      }
+    } catch (e) {
+      toast.error("Failed to generate flashcards. Please try again.");
+    }
     setGenerating(false);
   };
 
@@ -172,34 +193,57 @@ export default function FlashcardsPage() {
               <div style={{ textAlign: "center", color: "rgba(160,180,230,0.5)", fontSize: 13, marginBottom: 16 }}>
                 Card {currentIdx + 1} of {reviewQueue.length}
               </div>
-              <GlassCard
-                onClick={() => setFlipped(!flipped)}
-                style={{ minHeight: 250, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", cursor: "pointer", textAlign: "center" }}
-                glow="rgba(0,212,255,0.08)"
+
+              {/* 3D flip card */}
+              <div
+                style={{ perspective: "1200px", cursor: "pointer" }}
+                onClick={() => setFlipped(f => !f)}
               >
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={flipped ? "answer" : "question"}
-                    initial={{ opacity: 0, rotateY: 90 }}
-                    animate={{ opacity: 1, rotateY: 0 }}
-                    exit={{ opacity: 0, rotateY: -90 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <div style={{ color: flipped ? "#00FF88" : "#00D4FF", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em", marginBottom: 16 }}>
-                      {flipped ? "Answer" : "Question"}
+                <motion.div
+                  animate={{ rotateY: flipped ? 180 : 0 }}
+                  transition={{ duration: 0.45, ease: [0.4, 0, 0.2, 1] }}
+                  style={{ position: "relative", minHeight: 250, transformStyle: "preserve-3d" }}
+                >
+                  {/* Front face — Question */}
+                  <div style={{
+                    position: "absolute", inset: 0, backfaceVisibility: "hidden",
+                    display: "flex", flexDirection: "column", justifyContent: "center",
+                    alignItems: "center", textAlign: "center", padding: 32,
+                    background: "rgba(255,255,255,0.04)", borderRadius: 20,
+                    border: "1px solid rgba(0,212,255,0.15)",
+                  }}>
+                    <div style={{ color: "#00D4FF", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em", marginBottom: 16 }}>
+                      Question
                     </div>
                     <div style={{ color: "#e8f0ff", fontSize: 18, lineHeight: 1.6 }}>
-                      {flipped ? reviewQueue[currentIdx]?.answer : reviewQueue[currentIdx]?.question}
+                      {reviewQueue[currentIdx]?.question}
                     </div>
-                    {!flipped && (
-                      <div style={{ color: "rgba(160,180,230,0.3)", fontSize: 12, marginTop: 20 }}>Tap to reveal answer</div>
-                    )}
-                  </motion.div>
-                </AnimatePresence>
-              </GlassCard>
+                    <div style={{ color: "rgba(160,180,230,0.3)", fontSize: 12, marginTop: 20 }}>
+                      Tap to reveal answer
+                    </div>
+                  </div>
+
+                  {/* Back face — Answer */}
+                  <div style={{
+                    position: "absolute", inset: 0, backfaceVisibility: "hidden",
+                    transform: "rotateY(180deg)",
+                    display: "flex", flexDirection: "column", justifyContent: "center",
+                    alignItems: "center", textAlign: "center", padding: 32,
+                    background: "rgba(0,255,136,0.04)", borderRadius: 20,
+                    border: "1px solid rgba(0,255,136,0.15)",
+                  }}>
+                    <div style={{ color: "#00FF88", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em", marginBottom: 16 }}>
+                      Answer
+                    </div>
+                    <div style={{ color: "#e8f0ff", fontSize: 18, lineHeight: 1.6 }}>
+                      {reviewQueue[currentIdx]?.answer}
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
 
               {flipped && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "center" }}>
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "center", flexWrap: "wrap" }}>
                   <RatingButton label="Again" quality={1} color="#FF6C6C" onClick={() => reviewCard(1)} />
                   <RatingButton label="Hard" quality={2} color="#FF8C00" onClick={() => reviewCard(2)} />
                   <RatingButton label="Good" quality={3} color="#FFD700" onClick={() => reviewCard(3)} />
@@ -207,6 +251,10 @@ export default function FlashcardsPage() {
                   <RatingButton label="Perfect" quality={5} color="#00D4FF" onClick={() => reviewCard(5)} />
                 </motion.div>
               )}
+
+              <div style={{ textAlign: "center", color: "rgba(160,180,230,0.25)", fontSize: 11, marginTop: 14 }}>
+                Space to flip · ← Hard · → Easy
+              </div>
             </>
           )}
         </div>

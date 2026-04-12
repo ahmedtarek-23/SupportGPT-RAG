@@ -41,9 +41,10 @@ export function DashboardLayout() {
     <div
       style={{
         minHeight: "100vh",
-        background: "#03040F",
+        background: "var(--sm-bg)",
         fontFamily: "Space Grotesk, sans-serif",
         display: "flex",
+        position: "relative",
       }}
     >
       {/* Sidebar */}
@@ -51,9 +52,9 @@ export function DashboardLayout() {
         animate={{ width: collapsed ? 72 : 260 }}
         transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
         style={{
-          background: "rgba(5, 6, 17, 0.95)",
-          borderRight: "1px solid rgba(255,255,255,0.06)",
-          backdropFilter: "blur(24px)",
+          background: "var(--sm-sidebar-bg)",
+          borderRight: "1px solid var(--sm-border-subtle)",
+          backdropFilter: `blur(var(--sm-backdrop-blur))`,
           display: "flex",
           flexDirection: "column",
           position: "fixed",
@@ -71,7 +72,7 @@ export function DashboardLayout() {
             display: "flex",
             alignItems: "center",
             gap: 10,
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            borderBottom: "1px solid var(--sm-border-subtle)",
             minHeight: 72,
           }}
         >
@@ -81,11 +82,11 @@ export function DashboardLayout() {
               height: 36,
               minWidth: 36,
               borderRadius: 10,
-              background: "linear-gradient(135deg, #0066FF, #7B2FBE)",
+              background: `linear-gradient(135deg, var(--sm-accent-1), var(--sm-accent-2))`,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 0 20px rgba(0, 102, 255, 0.4)",
+              boxShadow: `0 0 20px var(--sm-logo-glow)`,
             }}
           >
             <BookOpen size={18} color="#fff" />
@@ -100,7 +101,7 @@ export function DashboardLayout() {
                   fontFamily: "Syne, sans-serif",
                   fontSize: 20,
                   fontWeight: 700,
-                  background: "linear-gradient(90deg, #fff, #a0b4ff)",
+                  background: `linear-gradient(90deg, var(--sm-text-primary), var(--sm-accent-3))`,
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent",
                   backgroundClip: "text",
@@ -132,10 +133,8 @@ export function DashboardLayout() {
                   borderRadius: 12,
                   border: "none",
                   cursor: "pointer",
-                  background: isActive
-                    ? "linear-gradient(135deg, rgba(0,102,255,0.15), rgba(123,47,190,0.1))"
-                    : "transparent",
-                  color: isActive ? "#fff" : "rgba(160, 180, 230, 0.7)",
+                  background: isActive ? "var(--sm-nav-active-bg)" : "transparent",
+                  color: isActive ? "var(--sm-text-primary)" : "var(--sm-text-secondary)",
                   fontFamily: "Space Grotesk, sans-serif",
                   fontSize: 14,
                   fontWeight: isActive ? 600 : 500,
@@ -147,14 +146,14 @@ export function DashboardLayout() {
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                    e.currentTarget.style.color = "#e8f0ff";
+                    e.currentTarget.style.background = "var(--sm-surface-hover)";
+                    e.currentTarget.style.color = "var(--sm-text-primary)";
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!isActive) {
                     e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = "rgba(160, 180, 230, 0.7)";
+                    e.currentTarget.style.color = "var(--sm-text-secondary)";
                   }
                 }}
               >
@@ -168,7 +167,7 @@ export function DashboardLayout() {
                       width: 3,
                       height: 20,
                       borderRadius: "0 4px 4px 0",
-                      background: "linear-gradient(180deg, #0066FF, #7B2FBE)",
+                      background: `linear-gradient(180deg, var(--sm-accent-1), var(--sm-accent-2))`,
                     }}
                   />
                 )}
@@ -178,7 +177,7 @@ export function DashboardLayout() {
                     <span style={{
                       position: "absolute", top: -5, right: -6,
                       minWidth: 16, height: 16, borderRadius: 8,
-                      background: "linear-gradient(135deg, #0066FF, #7B2FBE)",
+                      background: `linear-gradient(135deg, var(--sm-accent-1), var(--sm-accent-2))`,
                       color: "#fff", fontSize: 9, fontWeight: 700,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       padding: "0 3px", lineHeight: 1,
@@ -205,7 +204,7 @@ export function DashboardLayout() {
         </nav>
 
         {/* Bottom section */}
-        <div style={{ padding: "16px 8px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ padding: "16px 8px", borderTop: "1px solid var(--sm-border-subtle)" }}>
 
           {/* Settings */}
           <button
@@ -219,19 +218,23 @@ export function DashboardLayout() {
               borderRadius: 12,
               border: "none",
               cursor: "pointer",
-              background: location.pathname === "/settings" ? "rgba(123,47,190,0.12)" : "transparent",
-              color: location.pathname === "/settings" ? "#fff" : "rgba(160, 180, 230, 0.5)",
+              background: location.pathname === "/settings" ? "var(--sm-surface)" : "transparent",
+              color: location.pathname === "/settings" ? "var(--sm-text-primary)" : "var(--sm-text-secondary)",
               fontFamily: "Space Grotesk, sans-serif",
               fontSize: 14,
               fontWeight: 500,
               width: "100%",
               textAlign: "left",
               marginBottom: 4,
+              transition: "all 0.2s ease",
             }}
-            onMouseEnter={e => { e.currentTarget.style.color = "#e8f0ff"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = "var(--sm-text-primary)";
+              e.currentTarget.style.background = "var(--sm-surface-hover)";
+            }}
             onMouseLeave={e => {
-              e.currentTarget.style.color = location.pathname === "/settings" ? "#fff" : "rgba(160, 180, 230, 0.5)";
-              e.currentTarget.style.background = location.pathname === "/settings" ? "rgba(123,47,190,0.12)" : "transparent";
+              e.currentTarget.style.color = location.pathname === "/settings" ? "var(--sm-text-primary)" : "var(--sm-text-secondary)";
+              e.currentTarget.style.background = location.pathname === "/settings" ? "var(--sm-surface)" : "transparent";
             }}
           >
             <Settings size={18} style={{ minWidth: 18 }} />
@@ -257,11 +260,12 @@ export function DashboardLayout() {
               border: "none",
               cursor: "pointer",
               background: "transparent",
-              color: "rgba(160, 180, 230, 0.4)",
+              color: "var(--sm-text-tertiary)",
               fontFamily: "Space Grotesk, sans-serif",
               fontSize: 12,
               width: "100%",
               marginTop: 4,
+              transition: "all 0.2s ease",
             }}
           >
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -284,6 +288,8 @@ export function DashboardLayout() {
           transition: "margin-left 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
           minHeight: "100vh",
           padding: "32px 40px",
+          position: "relative",
+          zIndex: 1,
         }}
       >
         <Outlet />

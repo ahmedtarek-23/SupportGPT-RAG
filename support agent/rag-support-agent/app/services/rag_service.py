@@ -12,6 +12,21 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+ACADEMIC_SYSTEM_PROMPT = """You are StudyMate, an AI academic assistant for university students.
+
+Your priority order for answering:
+1. RETRIEVED CONTEXT — information found in the student's uploaded course documents (provided below)
+2. COURSE MEMORY — conversation history about this course
+3. GENERAL KNOWLEDGE — only as a last resort, and you must explicitly say so
+
+Rules:
+- If the retrieved context contains the answer, quote or closely paraphrase it and cite the source file.
+- If context is partially relevant, use it and note what you couldn't find.
+- If no relevant context exists, say: "I don't have specific course material on this — here is general knowledge:" then answer.
+- Never invent facts, dates, formulas, or assignments.
+- Write in a clear, academic, precise tone.
+- Format answers with headers or bullets when helpful."""
+
 
 class RAGService:
     """RAG (Retrieval-Augmented Generation) service — powered by local Ollama LLM."""
@@ -150,22 +165,19 @@ class RAGService:
         Returns:
             Formatted prompt for LLM
         """
-        context = "\n\n".join([f"Source: {chunk.source}\n{chunk.text}" for chunk in retrieved_chunks])
+        if retrieved_chunks:
+            context = "\n\n".join([
+                f"--- Source: {chunk.source} ---\n{chunk.text}"
+                for chunk in retrieved_chunks
+            ])
+            context_section = f"RETRIEVED COURSE MATERIAL:\n{context}"
+        else:
+            context_section = "RETRIEVED COURSE MATERIAL:\n[No relevant documents found]"
 
-        system_prompt = "You are a helpful customer support assistant. Use the provided context to answer the user's question accurately and concisely."
-
+        prompt = context_section
         if session_context:
-            # Include session context in system prompt
-            system_prompt += f"\n\nConversation history:\n{session_context}"
-
-        prompt = f"""You are a helpful customer support assistant. Use the provided context to answer the user's question accurately and concisely.
-
-Context:
-{context}
-
-Question: {query}
-
-Answer:"""
+            prompt += f"\n\nCONVERSATION HISTORY:\n{session_context}"
+        prompt += f"\n\nSTUDENT QUESTION:\n{query}\n\nANSWER:"
         return prompt
 
     def generate_answer(
@@ -188,15 +200,13 @@ Answer:"""
             response = self.client.chat.completions.create(
                 model=self.chat_model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a helpful customer support assistant.",
-                    },
+                    {"role": "system", "content": ACADEMIC_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.7,
-                max_tokens=512,
-                timeout=25,
+                temperature=0.3,
+                top_p=0.9,
+                max_tokens=900,
+                timeout=40,
             )
 
             answer = response.choices[0].message.content
@@ -249,7 +259,7 @@ Answer:"""
         if not retrieved_chunks:
             logger.warning("No relevant chunks found for query")
             response = {
-                "answer": "I couldn't find relevant information to answer your question. Please try rephrasing or contact support.",
+                "answer": "I don't have specific course material on this topic yet. Upload a relevant lecture PDF or syllabus and I'll be able to answer based on your actual course content.",
                 "sources": [],
                 "query": query,
                 "session_id": session_id,
@@ -260,11 +270,6 @@ Answer:"""
         if self.reranker and self.reranker.available:
             retrieved_chunks, rerank_scores = self.reranker.rerank(query, retrieved_chunks)
             logger.debug(f"Reranked chunks: {len(retrieved_chunks)} results with cross-encoder")
-
-        # Step 3: Get session context if available
-        session_context = None
-        if session_id and self.sessions.enabled:
-            session_context = self.sessions.build_context_prompt(session_id)
 
         # Step 3: Get session context if available
         session_context = None

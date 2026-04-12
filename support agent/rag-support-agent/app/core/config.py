@@ -20,11 +20,11 @@ class Settings(BaseSettings):
     chat_model: str = "llama3"                        # Overridden by ollama_model when use_local_ai=True
 
     # Chunking Configuration
-    chunk_size: int = 500  # tokens
-    chunk_overlap: int = 100  # tokens
+    chunk_size: int = 1000  # tokens
+    chunk_overlap: int = 200  # tokens
 
     # Retrieval Configuration
-    top_k: int = 3
+    top_k: int = 6
 
     # Storage Configuration
     embedding_storage_path: str = ".cache/embeddings.json"

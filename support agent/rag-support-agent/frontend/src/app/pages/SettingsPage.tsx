@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import {
   Settings, Cpu, Bell, Palette, Shield, CheckCircle2,
-  AlertCircle, ExternalLink, Save,
+  AlertCircle, ExternalLink, Save, Moon, Star, Sun,
 } from "lucide-react";
 import { GlassCard, PageHeader } from "../components/shared/GlassCard";
+import { useTheme, Theme } from "../context/ThemeContext";
 import { toast } from "sonner";
 
 // ── Persisted preferences (localStorage) ─────────────────────────────────────
@@ -47,6 +48,7 @@ function saveSettings(s: AppSettings) {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const { theme, setTheme } = useTheme();
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [ollamaStatus, setOllamaStatus] = useState<"idle" | "checking" | "ok" | "error">("idle");
   const [ollamaModel, setOllamaModel] = useState<string | null>(null);
@@ -318,6 +320,61 @@ export default function SettingsPage() {
           </div>
         </GlassCard>
 
+        {/* Appearance */}
+        <GlassCard>
+          <SectionHeader icon={<Palette size={16} color="var(--sm-accent-3)" />} title="Appearance" />
+          <div style={{ color: "var(--sm-text-secondary)", fontSize: 13, marginBottom: 20 }}>
+            Choose a theme for your workspace. Changes apply instantly.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            <ThemeCard
+              id="dark"
+              label="Dark"
+              description="Glassmorphism"
+              icon={<Moon size={20} />}
+              active={theme === "dark"}
+              preview={{
+                bg: "#03040F",
+                surface: "rgba(255,255,255,0.06)",
+                border: "rgba(255,255,255,0.1)",
+                accent: "#0066FF",
+                text: "#e8f0ff",
+              }}
+              onClick={() => { setTheme("dark"); toast.success("Dark theme applied"); }}
+            />
+            <ThemeCard
+              id="space"
+              label="Space"
+              description="Nebula & stars"
+              icon={<Star size={20} />}
+              active={theme === "space"}
+              preview={{
+                bg: "#060918",
+                surface: "rgba(10,15,45,0.7)",
+                border: "rgba(80,130,255,0.2)",
+                accent: "#4080FF",
+                text: "#c8d8ff",
+              }}
+              onClick={() => { setTheme("space"); toast.success("Space theme applied"); }}
+            />
+            <ThemeCard
+              id="light"
+              label="Light"
+              description="Clean & bright"
+              icon={<Sun size={20} />}
+              active={theme === "light"}
+              preview={{
+                bg: "#F2F5FF",
+                surface: "rgba(255,255,255,0.95)",
+                border: "rgba(0,80,200,0.12)",
+                accent: "#0055EE",
+                text: "#0A1030",
+              }}
+              onClick={() => { setTheme("light"); toast.success("Light theme applied"); }}
+            />
+          </div>
+        </GlassCard>
+
         {/* About */}
         <GlassCard>
           <SectionHeader icon={<Shield size={16} color="#00FF88" />} title="About StudyMate" />
@@ -425,6 +482,63 @@ function InfoRow({ label, value, valueColor }: { label: string; value: string; v
       <span style={{ color: "rgba(160,180,230,0.5)" }}>{label}</span>
       <span style={{ color: valueColor || "#e8f0ff", fontWeight: 600 }}>{value}</span>
     </div>
+  );
+}
+
+function ThemeCard({
+  id, label, description, icon, active, preview, onClick,
+}: {
+  id: Theme;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  active: boolean;
+  preview: { bg: string; surface: string; border: string; accent: string; text: string };
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        border: active
+          ? `2px solid ${preview.accent}`
+          : "2px solid var(--sm-border)",
+        borderRadius: 16,
+        padding: 0,
+        cursor: "pointer",
+        background: "transparent",
+        overflow: "hidden",
+        transition: "all 0.2s ease",
+        outline: "none",
+        boxShadow: active ? `0 0 18px ${preview.accent}44` : "none",
+      }}
+    >
+      {/* Mini preview */}
+      <div style={{ background: preview.bg, padding: "12px 10px", height: 70, position: "relative", overflow: "hidden" }}>
+        {/* Fake sidebar strip */}
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 22, background: preview.surface, borderRight: `1px solid ${preview.border}` }} />
+        {/* Fake cards */}
+        <div style={{ marginLeft: 28, display: "flex", flexDirection: "column", gap: 5 }}>
+          <div style={{ height: 10, borderRadius: 4, background: preview.surface, border: `1px solid ${preview.border}` }} />
+          <div style={{ height: 10, borderRadius: 4, background: preview.surface, border: `1px solid ${preview.border}`, width: "70%" }} />
+        </div>
+        {/* Accent dot */}
+        <div style={{ position: "absolute", bottom: 8, right: 8, width: 8, height: 8, borderRadius: "50%", background: preview.accent }} />
+        {active && (
+          <div style={{ position: "absolute", top: 6, right: 6, width: 16, height: 16, borderRadius: "50%", background: preview.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </div>
+        )}
+      </div>
+      {/* Label */}
+      <div style={{ padding: "8px 10px", background: "var(--sm-surface)", display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ color: active ? preview.accent : "var(--sm-text-secondary)", display: "flex" }}>{icon}</span>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ color: active ? preview.accent : "var(--sm-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.2 }}>{label}</div>
+          <div style={{ color: "var(--sm-text-tertiary)", fontSize: 10, lineHeight: 1.3 }}>{description}</div>
+        </div>
+      </div>
+    </button>
   );
 }
 
