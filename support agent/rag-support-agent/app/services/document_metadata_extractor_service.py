@@ -92,16 +92,34 @@ class DocumentMetadataExtractor:
                 max_tokens=1000,
             )
             raw = response.choices[0].message.content.strip()
+            logger.info(f"Metadata extractor LLM response: {len(raw)} chars")
 
             # Strip markdown code fences if present
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
+            raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.MULTILINE)
+            raw = re.sub(r"\s*```$", "", raw, flags=re.MULTILINE)
+
+            # Find JSON object boundaries in case LLM adds preamble text
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start != -1 and end != -1:
+                raw = raw[start:end + 1]
 
             data = json.loads(raw)
-            return self._validate_and_clean(data)
+            result = self._validate_and_clean(data)
+            logger.info(
+                f"Metadata extraction succeeded: "
+                f"course={result.get('course_title')!r}, "
+                f"summary_len={len(result.get('summary') or '')}, "
+                f"dates={len(result.get('important_dates', []))}, "
+                f"flashcard_candidates={len(result.get('flashcard_candidates', []))}"
+            )
+            return result
 
         except json.JSONDecodeError as e:
-            logger.warning(f"LLM returned invalid JSON during extraction: {e}")
+            logger.warning(
+                f"LLM returned invalid JSON during extraction: {e}\n"
+                f"Raw response (first 500 chars): {raw[:500]!r}"
+            )
             return self._empty_result()
         except Exception as e:
             logger.error(f"Document metadata extraction failed: {e}")

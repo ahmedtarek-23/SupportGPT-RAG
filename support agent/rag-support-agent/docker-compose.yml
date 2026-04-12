@@ -7,8 +7,8 @@ services:
     container_name: studymate_postgres
     environment:
       POSTGRES_USER: supportgpt
-      POSTGRES_PASSWORD: studymate_password
-      POSTGRES_DB: studymate_db
+      POSTGRES_PASSWORD: supportgpt_password
+      POSTGRES_DB: supportgpt_db
     ports:
       - "5433:5432"
     volumes:
@@ -73,7 +73,7 @@ services:
       EMBEDDING_MODEL: "all-MiniLM-L6-v2"
       EMBEDDING_DIMENSIONS: "384"
       # Infrastructure
-      DATABASE_URL: postgresql://supportgpt:studymate_password@postgres:5432/studymate_db
+      DATABASE_URL: postgresql://supportgpt:supportgpt_password@postgres:5432/supportgpt_db
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND_URL: redis://redis:6379/1
@@ -92,7 +92,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: >
+      gunicorn app.main:app
+      -k uvicorn.workers.UvicornWorker
+      --workers 2
+      --bind 0.0.0.0:8000
+      --timeout 120
+      --graceful-timeout 30
+      --access-logfile -
+      --error-logfile -
 
   # React Frontend (built by Vite, served by Nginx)
   frontend:
@@ -117,7 +125,7 @@ services:
       USE_LOCAL_AI: "true"
       EMBEDDING_MODEL: "all-MiniLM-L6-v2"
       EMBEDDING_DIMENSIONS: "384"
-      DATABASE_URL: postgresql://supportgpt:studymate_password@postgres:5432/studymate_db
+      DATABASE_URL: postgresql://supportgpt:supportgpt_password@postgres:5432/supportgpt_db
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND_URL: redis://redis:6379/1

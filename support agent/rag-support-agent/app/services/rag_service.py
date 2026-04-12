@@ -255,9 +255,15 @@ class RAGService:
 
         # Step 1: Retrieve relevant chunks
         retrieved_chunks = self.retrieval_service.retrieve(query, top_k=top_k)
+        logger.info(
+            f"RAG retrieval: {len(retrieved_chunks)} chunks for query={query[:60]!r}"
+        )
 
         if not retrieved_chunks:
-            logger.warning("No relevant chunks found for query")
+            logger.warning(
+                "No relevant chunks found — embedding store may be empty or "
+                "document not yet ingested. Returning fallback message."
+            )
             response = {
                 "answer": "I don't have specific course material on this topic yet. Upload a relevant lecture PDF or syllabus and I'll be able to answer based on your actual course content.",
                 "sources": [],
@@ -271,10 +277,14 @@ class RAGService:
             retrieved_chunks, rerank_scores = self.reranker.rerank(query, retrieved_chunks)
             logger.debug(f"Reranked chunks: {len(retrieved_chunks)} results with cross-encoder")
 
-        # Step 3: Get session context if available
+        # Step 3: Get session context — use summarizer when available, raw history as fallback
         session_context = None
         if session_id and self.sessions.enabled:
-            session_context = self.sessions.build_context_prompt(session_id)
+            summarized_context, _ = self.get_session_context_with_summary(session_id)
+            if summarized_context:
+                session_context = summarized_context
+            else:
+                session_context = self.sessions.build_context_prompt(session_id)
 
         # Step 4: Generate answer
         answer = self.generate_answer(query, retrieved_chunks, session_context)
@@ -294,6 +304,8 @@ class RAGService:
             "sources": sources,
             "query": query,
             "session_id": session_id,
+            # Included so chat.py can score confidence without a second retrieval
+            "retrieved_chunks": retrieved_chunks,
         }
 
         # Cache the response

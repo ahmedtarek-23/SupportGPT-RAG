@@ -174,12 +174,54 @@ class FlashcardService:
                     context_text = "\n\n".join([
                         f"[Source: {c.source}]\n{c.text}" for c in chunks
                     ])
+                    logger.info(
+                        f"Flashcard RAG retrieval: {len(chunks)} chunks for "
+                        f"source_document={source_document!r} topic={topic!r}"
+                    )
+                else:
+                    logger.warning(
+                        f"Flashcard RAG retrieval returned 0 chunks for "
+                        f"source_document={source_document!r} topic={topic!r}"
+                    )
             except Exception as e:
-                logger.warning(f"Failed to retrieve context for flashcards: {e}")
+                logger.warning(f"Failed to retrieve context for flashcards via RAG: {e}")
+
+        # Fallback: if RAG returned nothing but a source document was named,
+        # load the chunks directly from the embedding store filtered by source.
+        # This handles the case where the BM25 index is cold and vector search
+        # finds nothing (e.g., no semantic overlap with the generic query).
+        if not context_text and source_document:
+            try:
+                from app.services.embedding_store_factory import get_embedding_store
+                store = get_embedding_store()
+                all_chunks = store.load_all_chunks()
+                doc_chunks = [c for c in all_chunks if c.source == source_document]
+                if doc_chunks:
+                    context_text = "\n\n".join(
+                        f"[Source: {c.source}]\n{c.text}" for c in doc_chunks[:12]
+                    )
+                    logger.info(
+                        f"Flashcard fallback: loaded {len(doc_chunks)} chunks "
+                        f"directly from store for source={source_document!r}"
+                    )
+                else:
+                    # Log all known sources so the mismatch is visible in logs
+                    known = sorted({c.source for c in all_chunks})
+                    logger.warning(
+                        f"Flashcard fallback: no chunks found for source={source_document!r}. "
+                        f"Known sources in store: {known}"
+                    )
+            except Exception as e:
+                logger.warning(f"Flashcard direct store fallback failed: {e}")
 
         if not context_text:
             if source_document:
-                return []  # Refuse to generate without real context — avoid hallucination
+                logger.error(
+                    f"Cannot generate flashcards: no content found for "
+                    f"source_document={source_document!r}. "
+                    "Document may not have been ingested yet."
+                )
+                return []  # Refuse to hallucinate without real context
             context_text = f"Topic: {topic or 'General academic content'}"
 
         # Generate flashcards with AI
@@ -198,11 +240,17 @@ CRITICAL RULES:
 Return a JSON array only:
 [{"question": "...", "answer": "...", "difficulty": 2}, ...]"""
 
-        user_prompt = f"""Generate {count} flashcards from this academic content:
+        user_prompt = f"""Generate exactly {count} flashcards from the academic content below.
 
+Each card must test ONE specific concept: a definition, a formula, a date, a process step, or a key term.
+Do NOT combine multiple concepts into one card.
+Do NOT invent anything not present in the source material.
+
+SOURCE MATERIAL:
 {context_text}
 
-Return ONLY a valid JSON array, no markdown."""
+Return ONLY a raw JSON array — no markdown, no code fences, no explanation:
+[{{"question": "...", "answer": "...", "difficulty": 1}}, ...]"""
 
         try:
             response = self.client.chat.completions.create(
@@ -218,11 +266,23 @@ Return ONLY a valid JSON array, no markdown."""
 
             content = response.choices[0].message.content.strip()
 
-            # Strip markdown fences
-            if content.startswith("```"):
-                content = content.split("\n", 1)[1]
-                if content.endswith("```"):
-                    content = content[:-3]
+            # Strip all markdown fence variants (```json, ```JSON, ``` etc.)
+            if "```" in content:
+                # Extract content between first and last fence
+                parts = content.split("```")
+                # parts[1] is the fenced block; strip optional language tag on first line
+                fenced = parts[1]
+                first_newline = fenced.find("\n")
+                if first_newline != -1:
+                    content = fenced[first_newline:].strip()
+                else:
+                    content = fenced.strip()
+
+            # Find the JSON array boundaries (LLM sometimes prepends/appends text)
+            start = content.find("[")
+            end = content.rfind("]")
+            if start != -1 and end != -1:
+                content = content[start:end + 1]
 
             cards_data = json.loads(content)
 

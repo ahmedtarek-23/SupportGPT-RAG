@@ -522,9 +522,10 @@ async def generate_flashcards_from_document(
 
 @router.post("/documents/{document_id}/generate-summary")
 async def generate_document_summary(document_id: UUID, db=Depends(get_db)):
-    """Generate or refresh the AI summary for a document."""
+    """Generate or refresh the AI summary for a document using the full academic prompt."""
     from app.db.models import Document
-    from app.services.ollama_service import get_ollama_client, get_active_model
+    from app.services.summary_service import SummaryService
+    from app.services.embedding_store_factory import get_embedding_store
 
     doc = db.query(Document).filter(
         Document.id == document_id,
@@ -535,40 +536,49 @@ async def generate_document_summary(document_id: UUID, db=Depends(get_db)):
     if doc.status != "completed":
         raise HTTPException(status_code=400, detail="Document has not finished processing")
 
-    # Pull text from embedding chunks
-    from app.db.models import EmbeddingChunk
-    chunks = db.query(EmbeddingChunk).filter(
-        EmbeddingChunk.source == doc.original_filename
-    ).limit(20).all()
+    # Load text from the active embedding store (JSON or pgvector).
+    # Filtering by source name matches what the ingestion pipeline stored.
+    try:
+        store = get_embedding_store()
+        all_chunks = store.load_all_chunks()
+        doc_chunks = [c for c in all_chunks if c.source == doc.original_filename]
+        logger.info(
+            f"generate-summary: found {len(doc_chunks)} chunks for "
+            f"source={doc.original_filename!r} (total store size={len(all_chunks)})"
+        )
+    except Exception as e:
+        logger.error(f"generate-summary: failed to load chunks: {e}")
+        doc_chunks = []
 
-    if not chunks:
-        raise HTTPException(status_code=400, detail="No content chunks found for this document")
+    if not doc_chunks:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No content chunks found for this document. "
+                "The document may not have been ingested yet or used a different source name."
+            ),
+        )
 
-    combined_text = "\n\n".join(c.text for c in chunks)[:6000]
+    combined_text = "\n\n".join(c.text for c in doc_chunks)
+    logger.info(
+        f"generate-summary: combined text length={len(combined_text)} chars "
+        f"for document {document_id}"
+    )
 
     try:
-        client = get_ollama_client()
-        model = get_active_model()
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{
-                "role": "user",
-                "content": (
-                    "Summarize this academic document in 3-4 sentences. "
-                    "Mention the course, key topics, and any important dates if present.\n\n"
-                    f"{combined_text}"
-                ),
-            }],
-            temperature=0.3,
-            max_tokens=300,
-        )
-        summary = response.choices[0].message.content.strip()
+        svc = SummaryService()
+        summary = svc.generate_document_summary(combined_text)
+        if not summary:
+            raise HTTPException(status_code=500, detail="Summary generation failed — AI returned empty response")
         doc.extracted_summary = summary
         db.commit()
+        logger.info(f"generate-summary: stored {len(summary)}-char summary for document {document_id}")
         return {"document_id": str(document_id), "summary": summary}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Summary generation failed: {e}")
-        raise HTTPException(status_code=500, detail="Summary generation failed")
+        logger.error(f"generate-summary: failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Summary generation failed: {e}")
 
 
 @router.get("/documents/{document_id}/status")

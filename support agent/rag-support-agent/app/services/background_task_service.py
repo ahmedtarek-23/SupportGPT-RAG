@@ -132,29 +132,25 @@ def ingest_document_task(self, file_path: str, source_name: str = None, document
         # ── 1. Parse ────────────────────────────────────────────────
         content, doc_metadata = DocumentParserFactory.parse(file_path)
         source = source_name or doc_metadata.filename
+        logger.info(
+            f"Parsed {doc_metadata.filename}: "
+            f"text_length={len(content)} chars, words={doc_metadata.num_words}"
+        )
+        if not content or len(content.strip()) < 50:
+            logger.error(
+                f"Extracted text is too short ({len(content)} chars) — "
+                "document may be image-based or corrupted"
+            )
 
         # ── 2. Chunk ────────────────────────────────────────────────
         self.update_state(state='PROCESSING', meta={'current': 'Chunking…', 'document_id': document_id})
         chunks = IngestService().chunk_text(content, source=source)
         logger.info(f"Created {len(chunks)} chunks from {doc_metadata.filename}")
 
-        # ── 3. Embed ────────────────────────────────────────────────
+        # ── 3. Embed (batch — single model call for all chunks) ─────
+        self.update_state(state='PROCESSING', meta={'current': f'Embedding {len(chunks)} chunks…', 'document_id': document_id})
         embedding_service = EmbeddingService()
-        embedded_chunks = []
-        for i, chunk in enumerate(chunks):
-            if i % 10 == 0:
-                self.update_state(
-                    state='PROCESSING',
-                    meta={'current': f'Embedding {i+1}/{len(chunks)}…', 'document_id': document_id},
-                )
-            from app.schemas.chunk import EmbeddedChunk
-            embedded_chunks.append(EmbeddedChunk(
-                chunk_id=str(chunk.id),
-                text=chunk.text,
-                source=chunk.source,
-                embedding=embedding_service.generate_embedding(chunk.text),
-                metadata={**(chunk.metadata or {}), 'ingestion_task_id': self.request.id},
-            ))
+        embedded_chunks = embedding_service.generate_embeddings(chunks)
 
         # ── 4. Store embeddings ─────────────────────────────────────
         self.update_state(state='PROCESSING', meta={'current': 'Storing embeddings…', 'document_id': document_id})
@@ -168,7 +164,22 @@ def ingest_document_task(self, file_path: str, source_name: str = None, document
             except Exception as e:
                 logger.warning(f"Hybrid search reindex failed: {e}")
 
-        # ── 5. AI Metadata Extraction ────────────────────────────────
+        # ── 5. Persist chunk count + mark COMPLETED immediately ──────
+        # The document is searchable as soon as embeddings are stored.
+        # Mark completed now so the UI unblocks; LLM enrichment follows.
+        if doc is not None:
+            try:
+                doc.num_chunks = len(embedded_chunks)
+                doc.ingested_at = datetime.utcnow()
+                db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to persist num_chunks/ingested_at: {e}")
+                db.rollback()
+
+        _update_doc_status("completed")
+        logger.info(f"Document {document_id} marked completed — starting LLM enrichment")
+
+        # ── 6. AI Metadata Extraction (post-completion enrichment) ───
         extraction = {}
         confidence = {"overall": "NONE", "overall_score": 0.0, "scores": {}, "review_fields": []}
         try:
@@ -184,7 +195,7 @@ def ingest_document_task(self, file_path: str, source_name: str = None, document
         except Exception as e:
             logger.warning(f"Metadata extraction failed (non-fatal): {e}")
 
-        # ── 6. Confidence Scoring ────────────────────────────────────
+        # ── 7. Confidence Scoring ────────────────────────────────────
         try:
             if extraction:
                 from app.services.confidence_scorer import ConfidenceScorer
@@ -193,17 +204,7 @@ def ingest_document_task(self, file_path: str, source_name: str = None, document
         except Exception as e:
             logger.warning(f"Confidence scoring failed (non-fatal): {e}")
 
-        # ── 7. Persist chunk count + ingestion time (always) ────────
-        if doc is not None:
-            try:
-                doc.num_chunks = len(embedded_chunks)
-                doc.ingested_at = datetime.utcnow()
-                db.commit()
-            except Exception as e:
-                logger.warning(f"Failed to persist num_chunks/ingested_at: {e}")
-                db.rollback()
-
-        # ── 7b. Persist extraction onto the Document record ──────────
+        # ── 8. Persist extraction onto the Document record ───────────
         if doc is not None and extraction:
             try:
                 apply_extraction_to_document(db, doc, extraction)
@@ -214,7 +215,24 @@ def ingest_document_task(self, file_path: str, source_name: str = None, document
                 logger.warning(f"Failed to persist extraction: {e}")
                 db.rollback()
 
-        # ── 8. Entity Provisioning ───────────────────────────────────
+        # ── 9. Generate rich academic summary ────────────────────────
+        if doc is not None and content:
+            try:
+                from app.services.summary_service import SummaryService
+                rich_summary = SummaryService().generate_document_summary(content)
+                if rich_summary:
+                    doc.extracted_summary = rich_summary
+                    db.commit()
+                    logger.info(
+                        f"Rich summary generated for {doc_metadata.filename}: "
+                        f"{len(rich_summary)} chars"
+                    )
+                else:
+                    logger.warning("SummaryService returned empty — keeping extractor summary")
+            except Exception as e:
+                logger.warning(f"Rich summary generation failed (non-fatal): {e}")
+
+        # ── 10. Entity Provisioning ──────────────────────────────────
         provisioned_course_id = None
         try:
             if doc is not None and extraction and confidence.get("overall") == "HIGH":
@@ -229,9 +247,6 @@ def ingest_document_task(self, file_path: str, source_name: str = None, document
                                 f"flashcards={result_p.flashcards_created}")
         except Exception as e:
             logger.warning(f"Entity provisioning failed (non-fatal): {e}")
-
-        # ── 9. Mark document completed ───────────────────────────────
-        _update_doc_status("completed")
 
         result = {
             'task_id': self.request.id,
@@ -323,21 +338,22 @@ def _run_ingestion_sync(file_path: str, source_name: str, document_id: str) -> N
 
         content, doc_metadata = DocumentParserFactory.parse(file_path)
         source = source_name or doc_metadata.filename
+        logger.info(
+            f"[sync] Parsed {doc_metadata.filename}: "
+            f"text_length={len(content)} chars, words={doc_metadata.num_words}"
+        )
+        if not content or len(content.strip()) < 50:
+            logger.error(
+                f"[sync] Extracted text too short ({len(content)} chars) — "
+                "document may be image-based or corrupted"
+            )
 
         chunks = IngestService().chunk_text(content, source=source)
         logger.info(f"[sync] Created {len(chunks)} chunks")
 
+        # Batch embed all chunks in one model call — ~10× faster than per-chunk loop
         embedding_service = EmbeddingService()
-        embedded_chunks = [
-            EmbeddedChunk(
-                chunk_id=str(c.id),
-                text=c.text,
-                source=c.source,
-                embedding=embedding_service.generate_embedding(c.text),
-                metadata=c.metadata or {},
-            )
-            for c in chunks
-        ]
+        embedded_chunks = embedding_service.generate_embeddings(chunks)
 
         store = get_embedding_store()
         store.save(embedded_chunks)
@@ -349,6 +365,21 @@ def _run_ingestion_sync(file_path: str, source_name: str, document_id: str) -> N
             except Exception as e:
                 logger.warning(f"[sync] Hybrid search reindex failed: {e}")
 
+        # ── Persist chunk count + mark COMPLETED immediately ────────
+        # Document is searchable now. Mark completed so UI unblocks;
+        # LLM enrichment continues in the background thread.
+        if doc is not None:
+            doc.num_chunks = len(embedded_chunks)
+            doc.ingested_at = _dt.utcnow()
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        _set_status("completed")
+        logger.info(f"[sync] Document {document_id} marked completed — starting LLM enrichment")
+
+        # ── AI Metadata Extraction (post-completion enrichment) ─────
         extraction = {}
         confidence = {"overall": "NONE", "overall_score": 0.0}
         try:
@@ -366,14 +397,6 @@ def _run_ingestion_sync(file_path: str, source_name: str, document_id: str) -> N
         except Exception as e:
             logger.warning(f"[sync] Confidence scoring failed (non-fatal): {e}")
 
-        if doc is not None:
-            doc.num_chunks = len(embedded_chunks)
-            doc.ingested_at = _dt.utcnow()
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
-
         if doc is not None and extraction:
             try:
                 apply_extraction_to_document(db, doc, extraction)
@@ -382,6 +405,22 @@ def _run_ingestion_sync(file_path: str, source_name: str, document_id: str) -> N
             except Exception as e:
                 logger.warning(f"[sync] Failed to persist extraction: {e}")
                 db.rollback()
+
+        # Generate rich academic summary
+        if doc is not None and content:
+            try:
+                from app.services.summary_service import SummaryService
+                rich_summary = SummaryService().generate_document_summary(content)
+                if rich_summary:
+                    doc.extracted_summary = rich_summary
+                    db.commit()
+                    logger.info(
+                        f"[sync] Rich summary generated: {len(rich_summary)} chars"
+                    )
+                else:
+                    logger.warning("[sync] SummaryService returned empty summary")
+            except Exception as e:
+                logger.warning(f"[sync] Rich summary generation failed (non-fatal): {e}")
 
         try:
             if doc is not None and extraction and confidence.get("overall") == "HIGH":
@@ -393,8 +432,7 @@ def _run_ingestion_sync(file_path: str, source_name: str, document_id: str) -> N
         except Exception as e:
             logger.warning(f"[sync] Entity provisioning failed (non-fatal): {e}")
 
-        _set_status("completed")
-        logger.info(f"[sync] Ingestion complete for: {doc_metadata.filename}")
+        logger.info(f"[sync] LLM enrichment complete for: {doc_metadata.filename}")
 
     except Exception as e:
         logger.error(f"[sync] Ingestion failed: {e}", exc_info=True)

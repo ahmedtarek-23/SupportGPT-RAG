@@ -87,7 +87,7 @@ class RetrievalService:
         # Get vector similarity scores
         query_embedding = self.embedding_service.embed_query(query)
         query_embedding = np.array(query_embedding).reshape(1, -1)
-        
+
         stored_chunks = self.store.load_all_chunks()
         if not stored_chunks:
             logger.warning("No precomputed embeddings found.")
@@ -96,15 +96,26 @@ class RetrievalService:
         # Compute vector similarities
         chunk_embeddings = np.array([chunk.embedding for chunk in stored_chunks])
         similarities = cosine_similarity(query_embedding, chunk_embeddings)[0]
-        
+
         # Create similarity dict
         vector_similarities = {
             chunk.chunk_id: float(similarities[i])
             for i, chunk in enumerate(stored_chunks)
         }
-        
+
+        # Auto-rebuild BM25 index if stale (e.g., after server restart or new instance).
+        # HybridSearchService keeps index in-memory; it is lost whenever a new
+        # RetrievalService instance is created. We rebuild cheaply from already-loaded
+        # stored_chunks rather than requiring a separate index() call.
+        if not self.hybrid_search.embedded_chunks:
+            logger.info(
+                f"[hybrid] BM25 index empty — rebuilding from {len(stored_chunks)} stored chunks"
+            )
+            self.hybrid_search.index_chunks(stored_chunks)
+
         # Use hybrid search to combine vector + BM25
         results = self.hybrid_search.search(query, vector_similarities, top_k=top_k)
+        logger.info(f"[hybrid] Returned {len(results)} results for query: {query[:60]!r}")
         return results
 
     def retrieve(self, query: str, top_k: int | None = None, use_expansion: bool = True) -> List[ChunkWithScore]:

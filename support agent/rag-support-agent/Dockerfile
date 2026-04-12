@@ -20,3 +20,13 @@ COPY app/ ./app/
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 EXPOSE 8000
+
+# Production server: 2 async workers, graceful timeout matches ingestion window
+CMD ["gunicorn", "app.main:app", \
+     "-k", "uvicorn.workers.UvicornWorker", \
+     "--workers", "2", \
+     "--bind", "0.0.0.0:8000", \
+     "--timeout", "120", \
+     "--graceful-timeout", "30", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-"]

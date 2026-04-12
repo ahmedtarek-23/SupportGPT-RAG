@@ -161,10 +161,10 @@ export function UploadCenterPanel({ onComplete, onClose }: UploadCenterPanelProp
 
   const isActive = stage === "idle" || stage === "dragging";
   const borderColor =
-    stage === "dragging" ? "#0066FF"
-    : stage === "error" ? "#FF6C6C"
-    : stage === "done" ? "#00FF88"
-    : "rgba(255,255,255,0.12)";
+    stage === "dragging" ? "var(--sm-accent-1)"
+    : stage === "error" ? "#E05555"
+    : stage === "done" ? "#00C97A"
+    : "var(--sm-border)";
 
   return (
     <motion.div
@@ -186,29 +186,30 @@ export function UploadCenterPanel({ onComplete, onClose }: UploadCenterPanelProp
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.92, y: 24 }}
         transition={{ type: "spring", damping: 24, stiffness: 260 }}
+        className="upload-modal-inner"
         style={{
-          background: "rgba(8,10,28,0.98)",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--sm-sidebar-bg)",
+          border: "1px solid var(--sm-border)",
           borderRadius: 28,
           padding: "36px 40px",
           width: "100%", maxWidth: 520,
-          backdropFilter: "blur(32px)",
-          boxShadow: "0 40px 120px rgba(0,0,0,0.5)",
+          backdropFilter: `blur(var(--sm-backdrop-blur))`,
+          boxShadow: "0 40px 120px rgba(0,0,0,0.45)",
         }}
       >
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
           <div>
-            <h2 style={{ fontFamily: "Syne, sans-serif", fontSize: 22, fontWeight: 800, color: "#fff", margin: 0 }}>
+            <h2 style={{ fontFamily: "Syne, sans-serif", fontSize: 22, fontWeight: 800, color: "var(--sm-text-primary)", margin: 0 }}>
               Upload Academic File
             </h2>
-            <p style={{ color: "rgba(160,180,230,0.5)", fontSize: 13, margin: "6px 0 0" }}>
+            <p style={{ color: "var(--sm-text-secondary)", fontSize: 13, margin: "6px 0 0" }}>
               AI will extract course, instructor, deadlines & flashcards
             </p>
           </div>
           <button
             onClick={onClose}
-            style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "rgba(160,180,230,0.6)", padding: 8, borderRadius: 10, cursor: "pointer" }}
+            style={{ background: "var(--sm-surface)", border: "1px solid var(--sm-border)", color: "var(--sm-text-secondary)", padding: 8, borderRadius: 10, cursor: "pointer" }}
           >
             <X size={16} />
           </button>
@@ -230,10 +231,10 @@ export function UploadCenterPanel({ onComplete, onClose }: UploadCenterPanelProp
             background: stage === "dragging"
               ? "rgba(0,102,255,0.06)"
               : stage === "done"
-                ? "rgba(0,255,136,0.04)"
+                ? "rgba(0,201,122,0.04)"
                 : stage === "error"
-                  ? "rgba(255,108,108,0.04)"
-                  : "rgba(255,255,255,0.02)",
+                  ? "rgba(224,85,85,0.04)"
+                  : "var(--sm-surface)",
             position: "relative",
             overflow: "hidden",
           }}
@@ -249,37 +250,40 @@ export function UploadCenterPanel({ onComplete, onClose }: UploadCenterPanelProp
           {/* Icon */}
           <div style={{ marginBottom: 16, display: "flex", justifyContent: "center" }}>
             {stage === "done" ? (
-              <CheckCircle size={44} color="#00FF88" />
+              <CheckCircle size={44} color="#00C97A" />
             ) : stage === "error" ? (
-              <AlertCircle size={44} color="#FF6C6C" />
+              <AlertCircle size={44} color="#E05555" />
             ) : stage === "parsing" || stage === "uploading" ? (
               <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}>
-                <Loader size={44} color="#0066FF" />
+                <Loader size={44} color="var(--sm-accent-1)" />
               </motion.div>
             ) : (
-              <Upload size={44} color={stage === "dragging" ? "#0066FF" : "rgba(160,180,230,0.4)"} />
+              <Upload size={44} color={stage === "dragging" ? "var(--sm-accent-1)" : "var(--sm-text-tertiary)"} />
             )}
           </div>
 
           {/* Stage label */}
-          <div style={{ color: stage === "error" ? "#FF6C6C" : stage === "done" ? "#00FF88" : "#e8f0ff", fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+          <div style={{
+            color: stage === "error" ? "#E05555" : stage === "done" ? "#00C97A" : "var(--sm-text-primary)",
+            fontWeight: 700, fontSize: 16, marginBottom: 6,
+          }}>
             {STAGE_LABELS[stage]}
           </div>
 
           {fileName && stage !== "idle" && (
-            <div style={{ color: "rgba(160,180,230,0.5)", fontSize: 13, display: "flex", alignItems: "center", gap: 6, justifyContent: "center", marginBottom: 8 }}>
+            <div style={{ color: "var(--sm-text-secondary)", fontSize: 13, display: "flex", alignItems: "center", gap: 6, justifyContent: "center", marginBottom: 8 }}>
               <FileText size={13} /> {fileName}
             </div>
           )}
 
           {stage === "idle" && (
-            <div style={{ color: "rgba(160,180,230,0.4)", fontSize: 13 }}>
+            <div style={{ color: "var(--sm-text-tertiary)", fontSize: 13 }}>
               PDF, DOCX, TXT supported
             </div>
           )}
 
           {stage === "error" && (
-            <div style={{ color: "#FF6C6C", fontSize: 13, marginTop: 4 }}>{errorMsg}</div>
+            <div style={{ color: "#E05555", fontSize: 13, marginTop: 4 }}>{errorMsg}</div>
           )}
 
           {/* Upload progress bar */}
@@ -324,9 +328,9 @@ export function UploadCenterPanel({ onComplete, onClose }: UploadCenterPanelProp
             ].map((item) => (
               <div
                 key={item}
-                style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(160,180,230,0.5)", fontSize: 12 }}
+                style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--sm-text-secondary)", fontSize: 12 }}
               >
-                <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#0066FF", flexShrink: 0 }} />
+                <div style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--sm-accent-1)", flexShrink: 0 }} />
                 {item}
               </div>
             ))}
@@ -339,9 +343,9 @@ export function UploadCenterPanel({ onComplete, onClose }: UploadCenterPanelProp
             onClick={() => { setStage("idle"); setErrorMsg(""); setFileName(""); }}
             style={{
               marginTop: 20, width: "100%", padding: "12px",
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 14, color: "#e8f0ff",
+              background: "var(--sm-surface)",
+              border: "1px solid var(--sm-border)",
+              borderRadius: 14, color: "var(--sm-text-primary)",
               fontFamily: "Space Grotesk, sans-serif", fontSize: 14, fontWeight: 600,
               cursor: "pointer",
             }}
@@ -360,10 +364,10 @@ function ProgressBar({ value, label, color }: { value: number; label: string; co
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12 }}>
-        <span style={{ color: "rgba(160,180,230,0.6)" }}>{label}</span>
+        <span style={{ color: "var(--sm-text-secondary)" }}>{label}</span>
         <span style={{ color, fontWeight: 700 }}>{value}%</span>
       </div>
-      <div style={{ height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 99, overflow: "hidden" }}>
+      <div style={{ height: 6, background: "var(--sm-surface-hover)", borderRadius: 99, overflow: "hidden" }}>
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${value}%` }}
